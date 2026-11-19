@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Django
+*.sqlite3
+staticfiles/
+media/
+
+# Secrets / local config (never commit real values)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
