@@ -42,8 +42,8 @@ One folder per task at the repo root (`task01_...` to `task10_...`), each fully 
 - Red then green: the failing-test commit comes before the implementation commit.
 
 ## Current status
-- [ ] Step 1: repo, docs, context file
-- [ ] Step 2: docker-compose + .env.example
+- [x] Step 1: repo, docs, context file
+- [x] Step 2: docker-compose + .env.example
 - [ ] Task 1 ... Task 10: not started
 
 ## Decisions log
