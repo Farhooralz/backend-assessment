@@ -47,4 +47,4 @@ One folder per task at the repo root (`task01_...` to `task10_...`), each fully 
 - [ ] Task 1 ... Task 10: not started
 
 ## Decisions log
-- T1 sample confirmed from the PDF text layer: `[(1,A,7),(3,C,4)]` + `[(1,A,7),(2,B,5)]` -> A, B, C; amount 8 for A in the second stream -> error.
+- T1 sample: the PDF displays `[(A,7),(3,C,4,1)]` and `[(A,7),(2,B,5,1)]` because of a right-to-left rendering bug (the leading "1," is displaced). The real input is `[(1,A,7),(3,C,4)]` and `[(1,A,7),(2,B,5)]`, events are `(time, id, amount)`. Expected output order is A, B, C (the arrows between the letters are missing in the PDF font). Verified by simulating the bidi layout.

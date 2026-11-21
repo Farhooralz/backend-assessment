@@ -272,7 +272,7 @@ Design the **Backend architecture** for **80 sports branches** with **court rese
  
 ## ⚠ Interpretation notes (items to confirm or sanity-check)
  
-1. **T1 sample**: confirmed against the PDF's text layer: `[(1,A,7),(3,C,4)]` and `[(1,A,7),(2,B,5)]` give A, B, C; changing A's amount to 8 in the second stream must raise an error.
+- T1 sample: the PDF displays `[(A,7),(3,C,4,1)]` and `[(A,7),(2,B,5,1)]` because of a right-to-left rendering bug (the leading "1," is displaced). The real input is `[(1,A,7),(3,C,4)]` and `[(1,A,7),(2,B,5)]`, events are `(time, id, amount)`. Expected output order is A, B, C (the arrows between the letters are missing in the PDF font). Verified by simulating the bidi layout.
 2. **T1 "error before publishing"**: all copies of a `(time, id)` key must be compared **before** that key is yielded.
 3. **T3 "confirmed" / "successful"**: assumed to mean Booking status `confirmed` and Payment status `success`. Failed payments are excluded from collected sums.
 4. **T5 "409"** is used for all conflict cases (capacity full, second reservation by the same user, key reuse on another class).
