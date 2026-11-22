@@ -21,6 +21,11 @@ class Command(BaseCommand):
                 outbox = OutboxMessage.objects.select_for_update().get(pk=message_id)
             except OutboxMessage.DoesNotExist as exc:
                 raise CommandError(f"no outbox message with id {message_id}") from exc
+            if outbox.status != OutboxMessage.Status.FAILED:
+                raise CommandError(
+                    f"outbox message {message_id} is {outbox.status}; "
+                    "only failed rows can be retried"
+                )
             outbox.status = OutboxMessage.Status.PENDING
             outbox.attempts = 0
             outbox.next_attempt_at = timezone.now()

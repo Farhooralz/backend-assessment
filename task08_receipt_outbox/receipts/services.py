@@ -1,14 +1,22 @@
 """Plain services for the transactional outbox and its recovery rules."""
 
+import logging
 from datetime import datetime, timedelta
+from decimal import Decimal
 
+import redis
 from django.db import transaction
 from django.utils import timezone
+from kombu.exceptions import OperationalError
 
 from receipts import fake_service
 from receipts.models import OutboxMessage, Payment, Receipt
 
+logger = logging.getLogger(__name__)
+
 MAX_ATTEMPTS = 5
+# next_attempt_at doubles as a dispatch lease so beat will not re-claim a slow send.
+LEASE_SECONDS = 30
 
 
 def backoff_seconds(attempts: int) -> int:
@@ -19,13 +27,31 @@ def backoff_seconds(attempts: int) -> int:
 def _enqueue(message_id: int) -> None:
     from receipts.tasks import dispatch_receipt
 
-    dispatch_receipt.delay(message_id)
+    try:
+        dispatch_receipt.delay(message_id)
+    except (OperationalError, redis.exceptions.ConnectionError) as exc:
+        # The row is already committed; the sweeper will find it on the next tick.
+        logger.warning(
+            "broker enqueue failed for outbox %s; sweeper will recover: %s", message_id, exc
+        )
 
 
-def record_payment(reference: str, amount_rial: int, *, now: datetime | None = None) -> Payment:
+def _to_rial(amount_rial: int | Decimal) -> int:
+    """Reject floats and fractional Decimals instead of silently truncating money."""
+    if isinstance(amount_rial, bool) or not isinstance(amount_rial, int | Decimal):
+        raise ValueError(f"amount_rial must be int or Decimal, got {type(amount_rial).__name__}")
+    rial = int(amount_rial)
+    if rial != amount_rial:
+        raise ValueError("amount_rial must be a whole number of rials")
+    return rial
+
+
+def record_payment(
+    reference: str, amount_rial: int | Decimal, *, now: datetime | None = None
+) -> Payment:
     """Store the payment and its receipt outbox row in one transaction."""
     moment = now or timezone.now()
-    rial = int(amount_rial)
+    rial = _to_rial(amount_rial)
     with transaction.atomic():
         payment = Payment.objects.create(reference=reference, amount_rial=rial)
         outbox = OutboxMessage.objects.create(
@@ -39,10 +65,10 @@ def record_payment(reference: str, amount_rial: int, *, now: datetime | None = N
 
 
 def claim_due_messages(*, now: datetime | None = None) -> list[int]:
-    """Claim due rows with skip_locked so two workers never take the same row."""
+    """Select due rows with skip_locked so two sweepers never take the same row."""
     moment = now or timezone.now()
     with transaction.atomic():
-        ids = list(
+        return list(
             OutboxMessage.objects.select_for_update(skip_locked=True)
             .filter(
                 status__in=(OutboxMessage.Status.PENDING, OutboxMessage.Status.IN_PROGRESS),
@@ -51,9 +77,6 @@ def claim_due_messages(*, now: datetime | None = None) -> list[int]:
             .order_by("pk")
             .values_list("pk", flat=True)
         )
-        if ids:
-            OutboxMessage.objects.filter(pk__in=ids).update(status=OutboxMessage.Status.IN_PROGRESS)
-    return ids
 
 
 def sweep_outbox(*, now: datetime | None = None) -> int:
@@ -82,17 +105,28 @@ def process_outbox_message(
     now: datetime | None = None,
     service: fake_service.FakeReceiptService | None = None,
 ) -> str:
-    """Dispatch one outbox row; idempotency makes repeated attempts safe."""
+    """Dispatch one outbox row; the idempotency key makes repeated sends safe."""
     moment = now or timezone.now()
     gateway = service or fake_service.FakeReceiptService()
     with transaction.atomic():
         outbox = OutboxMessage.objects.select_for_update().get(pk=message_id)
         if outbox.status in (OutboxMessage.Status.SENT, OutboxMessage.Status.FAILED):
             return outbox.status
-        attempts = outbox.attempts + 1
+        leased = (
+            outbox.status == OutboxMessage.Status.IN_PROGRESS and outbox.next_attempt_at > moment
+        )
+        if leased:
+            return outbox.status  # another worker is dispatching this row
+        # A stale in_progress row is a crash recovery, not a brand-new attempt.
+        attempts = (
+            outbox.attempts
+            if outbox.status == OutboxMessage.Status.IN_PROGRESS
+            else (outbox.attempts + 1)
+        )
         outbox.status = OutboxMessage.Status.IN_PROGRESS
         outbox.attempts = attempts
-        outbox.save(update_fields=["status", "attempts"])
+        outbox.next_attempt_at = moment + timedelta(seconds=LEASE_SECONDS)
+        outbox.save(update_fields=["status", "attempts", "next_attempt_at"])
 
     try:
         result = gateway.send(outbox.idempotency_key, outbox.payload)

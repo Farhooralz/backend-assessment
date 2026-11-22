@@ -8,7 +8,6 @@ DEBUG = False
 ALLOWED_HOSTS: list[str] = []
 
 INSTALLED_APPS = ["receipts"]
-MIGRATION_MODULES = {"receipts": None}
 USE_TZ = True
 TIME_ZONE = "UTC"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

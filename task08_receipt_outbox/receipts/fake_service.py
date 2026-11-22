@@ -64,7 +64,8 @@ class FakeReceiptService:
         return SendResult(str(existing.pk)) if existing is not None else None
 
     def _accept(self, idempotency_key: str, payload: dict) -> SendResult:
-        message = FakeExternalMessage.objects.create(
-            idempotency_key=idempotency_key, payload=payload
+        # get_or_create absorbs the unique-constraint race between concurrent sends.
+        message, _ = FakeExternalMessage.objects.get_or_create(
+            idempotency_key=idempotency_key, defaults={"payload": payload}
         )
         return SendResult(str(message.pk))
