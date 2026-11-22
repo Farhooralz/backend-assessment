@@ -14,5 +14,5 @@ Infrastructure note: `docker compose up -d` fails with "permission denied while 
 | 6 | `task06_jwt_branch_access` | BLOCKED: no postgres | Wave 2; PostgreSQL + Redis unavailable. |
 | 7 | `task07_debtors_refactor` | BLOCKED: no postgres | Wave 2; PostgreSQL unavailable. |
 | 8 | `task08_receipt_outbox` | BLOCKED: no postgres | Wave 3; PostgreSQL + Redis unavailable. |
-| 9 | `task09_cancellation_tests` | IN_PROGRESS | Wave 1: cancellation policy. |
+| 9 | `task09_cancellation_tests` | DONE | 26 tests pass; coverage 100%; mutation checker caught all 3 defects; gate re-run by orchestrator. |
 | 10 | `task10_erp_architecture` | DONE | 39 doc tests pass; `check_doc.py` passes; gate re-run by orchestrator. |
