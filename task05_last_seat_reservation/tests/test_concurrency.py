@@ -1,9 +1,11 @@
 """Real concurrency: independent PostgreSQL connections released by a barrier."""
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 
-from django.db import connection
+from django.db import DEFAULT_DB_ALIAS, IntegrityError, connection, connections
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import TransactionTestCase
 
 from reservations.models import GymClass, Reservation
@@ -14,19 +16,41 @@ CAPACITY = 3
 
 
 class CountingBarrier(threading.Barrier):
-    """Record how many workers actually reached the shared start point."""
+    """Record how many workers reached the barrier with an already-open connection."""
 
     def __init__(self, parties: int) -> None:
-        """Create a barrier with a thread-safe counter."""
+        """Create a barrier with thread-safe arrival and connection counters."""
         super().__init__(parties)
         self.wait_count = 0
+        self.connections_open = 0
         self._count_lock = threading.Lock()
 
     def wait(self, timeout: float | None = None) -> int:
-        """Count the arrival, then block until every worker has arrived."""
+        """Count the arrival and its open connection, then block until all arrive."""
         with self._count_lock:
             self.wait_count += 1
+            self.connections_open += int(connection.connection is not None)
         return super().wait(timeout)
+
+
+def _open_connection() -> BaseDatabaseWrapper:
+    """Open this thread's PostgreSQL connection before it reaches the barrier."""
+    connection.close()
+    connection.ensure_connection()
+    worker_connection = connections[DEFAULT_DB_ALIAS]
+    worker_connection.inc_thread_sharing()  # let the main thread close it after the assertions
+    return worker_connection
+
+
+@contextmanager
+def _worker_connections() -> Iterator[list[BaseDatabaseWrapper]]:
+    """Keep worker connections open through the assertions, then close their sockets."""
+    open_connections: list[BaseDatabaseWrapper] = []
+    try:
+        yield open_connections
+    finally:
+        for conn in open_connections:
+            conn.close()
 
 
 def _backend_pid() -> int:
@@ -60,68 +84,107 @@ class TestReservationConcurrency(TransactionTestCase):
         backend_pids: set[int] = set()
         pids_lock = threading.Lock()
 
-        def worker(index: int) -> None:
-            connection.close()
-            barrier.wait(timeout=60)
-            connection.ensure_connection()
-            with pids_lock:
-                backend_pids.add(_backend_pid())
-            try:
-                results[index] = reserve(klass.id, user_id=index + 1, key=f"key-{index}")
-            except ReservationConflict as exc:
-                assert exc.status_code == 409
-                results[index] = "conflict"
-            finally:
-                connection.close()
+        with _worker_connections() as open_connections:
 
-        self._run_workers(worker, WORKERS)
+            def worker(index: int) -> None:
+                open_connections.append(_open_connection())
+                with pids_lock:
+                    backend_pids.add(_backend_pid())
+                barrier.wait(timeout=60)
+                try:
+                    results[index] = reserve(klass.id, user_id=index + 1, key=f"key-{index}")
+                except ReservationConflict as exc:
+                    assert exc.status_code == 409
+                    results[index] = "conflict"
 
-        assert barrier.wait_count == WORKERS
-        assert len(backend_pids) == WORKERS
-        successes = [result for result in results if isinstance(result, int)]
-        conflicts = [result for result in results if result == "conflict"]
-        assert len(successes) == 3, results
-        assert len(conflicts) == 17, results
-        assert Reservation.objects.filter(gym_class=klass).count() == 3
+            self._run_workers(worker, WORKERS)
+
+            assert barrier.wait_count == WORKERS
+            assert barrier.connections_open == WORKERS
+            assert len(backend_pids) == WORKERS
+            successes = [result for result in results if isinstance(result, int)]
+            conflicts = [result for result in results if result == "conflict"]
+            assert len(successes) == 3, results
+            assert len(conflicts) == 17, results
+            assert Reservation.objects.filter(gym_class=klass).count() == 3
 
     def test_spec_same_key_same_user_race_returns_one_shared_id(self) -> None:
         """Two simultaneous requests with one key and one user share a single id."""
         klass = GymClass.objects.create(name="Yoga", capacity=1)
-        barrier = threading.Barrier(2)
+        barrier = CountingBarrier(2)
         results: list[int | str | None] = [None, None]
 
-        def worker(index: int) -> None:
-            connection.close()
-            barrier.wait(timeout=60)
-            try:
-                results[index] = reserve(klass.id, user_id=1, key="shared-key")
-            except ReservationConflict as exc:
-                results[index] = f"conflict-{exc.status_code}"
-            finally:
-                connection.close()
+        with _worker_connections() as open_connections:
 
-        self._run_workers(worker, 2)
+            def worker(index: int) -> None:
+                open_connections.append(_open_connection())
+                barrier.wait(timeout=60)
+                try:
+                    results[index] = reserve(klass.id, user_id=1, key="shared-key")
+                except ReservationConflict as exc:
+                    results[index] = f"conflict-{exc.status_code}"
 
-        assert results[0] == results[1]
-        assert isinstance(results[0], int)
-        assert Reservation.objects.count() == 1
+            self._run_workers(worker, 2)
+
+            assert barrier.connections_open == 2
+            assert results[0] == results[1]
+            assert isinstance(results[0], int)
+            assert Reservation.objects.count() == 1
+
+    def test_spec_cross_class_key_race_yields_one_success_and_one_409(self) -> None:
+        """One user's key racing across two classes hits the real unique-index conflict path."""
+        first = GymClass.objects.create(name="Yoga", capacity=1)
+        other = GymClass.objects.create(name="Pilates", capacity=1)
+        barrier = CountingBarrier(2)
+        results: list[int | str | None] = [None, None]
+        backend_pids: set[int] = set()
+        pids_lock = threading.Lock()
+
+        with _worker_connections() as open_connections:
+
+            def worker(index: int) -> None:
+                open_connections.append(_open_connection())
+                with pids_lock:
+                    backend_pids.add(_backend_pid())
+                barrier.wait(timeout=60)
+                class_id = first.id if index == 0 else other.id
+                try:
+                    results[index] = reserve(class_id, user_id=1, key="shared-key")
+                except ReservationConflict as exc:
+                    results[index] = f"conflict-{exc.status_code}"
+                except IntegrityError as exc:
+                    results[index] = f"integrity-{type(exc).__name__}"
+
+            self._run_workers(worker, 2)
+
+            assert barrier.wait_count == 2
+            assert barrier.connections_open == 2
+            assert len(backend_pids) == 2
+            successes = [result for result in results if isinstance(result, int)]
+            conflicts = [result for result in results if result == "conflict-409"]
+            assert len(successes) == 1, results
+            assert len(conflicts) == 1, results
+            assert Reservation.objects.count() == 1
 
     def test_spec_independent_connection_per_worker(self) -> None:
         """Each worker holds its own PostgreSQL connection, not a shared cursor."""
-        barrier = threading.Barrier(3)
+        barrier = CountingBarrier(3)
         backend_pids: list[int] = []
+        pids_lock = threading.Lock()
 
-        def worker(_index: int) -> None:
-            connection.close()
-            barrier.wait(timeout=60)
-            connection.ensure_connection()
-            backend_pids.append(_backend_pid())
-            connection.close()
+        with _worker_connections() as open_connections:
 
-        self._run_workers(worker, 3)
+            def worker(_index: int) -> None:
+                open_connections.append(_open_connection())
+                with pids_lock:
+                    backend_pids.append(_backend_pid())
+                barrier.wait(timeout=60)
 
-        assert len(backend_pids) == 3
-        assert len(set(backend_pids)) == 3
+            self._run_workers(worker, 3)
+
+            assert barrier.connections_open == 3
+            assert len(backend_pids) == 3
+            assert len(set(backend_pids)) == 3
 
     def test_spec_shared_start_barrier(self) -> None:
         """No worker proceeds until all of them reached the same start point."""

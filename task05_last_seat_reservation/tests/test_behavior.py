@@ -1,9 +1,11 @@
 """Spec behaviour: idempotency, 409 conflicts, rollback and database constraints."""
 
+import psycopg
 import pytest
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 
 from reservations import services
+from reservations.db import pg_params
 from reservations.models import GymClass, Reservation
 from reservations.services import ReservationConflict, reserve
 
@@ -27,6 +29,16 @@ def test_spec_same_key_other_class_conflict_409() -> None:
         reserve(other.id, user_id=1, key="shared-key")
     assert exc.value.status_code == 409
     assert Reservation.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_spec_unknown_class_id_raises_class_not_found_404() -> None:
+    """An unknown class id raises a defined error that maps to HTTP 404."""
+    with pytest.raises(Exception) as exc:
+        reserve(class_id=999999, user_id=1, key="key-1")
+    assert type(exc.value).__name__ == "ClassNotFound"
+    assert exc.value.status_code == 404
+    assert Reservation.objects.count() == 0
 
 
 @pytest.mark.django_db
@@ -80,6 +92,36 @@ def test_spec_failure_mid_operation_does_not_consume_capacity(
     assert Reservation.objects.filter(gym_class=klass).count() == 1
 
 
+@pytest.mark.django_db(transaction=True)
+def test_spec_failure_after_insert_rolls_back_separate_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure after _insert returns leaves no row and a free seat on a capacity-1 class."""
+    klass = GymClass.objects.create(name="Yoga", capacity=1)
+    db_name = connection.settings_dict["NAME"]
+
+    def failing_hook(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("injected failure after _insert returned")
+
+    with monkeypatch.context() as mp:
+        mp.setattr(services, "_after_insert", failing_hook, raising=False)
+        with pytest.raises(RuntimeError, match="injected failure after _insert returned"):
+            reserve(klass.id, user_id=1, key="key-1")
+
+    with psycopg.connect(**pg_params(db_name)) as raw, raw.cursor() as cursor:
+        cursor.execute(
+            "SELECT count(*) FROM reservations_reservation WHERE gym_class_id = %s",
+            [klass.id],
+        )
+        row = cursor.fetchone()
+        assert row is not None
+        assert row[0] == 0
+        assert row[0] < klass.capacity
+
+    assert reserve(klass.id, user_id=1, key="key-1") > 0
+    assert Reservation.objects.filter(gym_class=klass).count() == 1
+
+
 @pytest.mark.django_db
 def test_spec_unique_user_class_constraint() -> None:
     """The database rejects a second reservation for the same user and class."""
@@ -100,7 +142,7 @@ def test_spec_unique_user_key_constraint() -> None:
 
 
 @pytest.mark.django_db
-def test_spec_integrity_error_rereads_shared_id(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unit_integrity_error_rereads_shared_id(monkeypatch: pytest.MonkeyPatch) -> None:
     """An IntegrityError race resolves by re-reading the winning row's id."""
     klass = GymClass.objects.create(name="Yoga", capacity=3)
     existing = Reservation.objects.create(gym_class=klass, user_id=1, key="key-1")

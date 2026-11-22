@@ -25,7 +25,7 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 | 2 | DONE | none | DONE |
 | 3 | DONE | P0 bug + tests + seed + EXPLAIN | DONE (round 2) |
 | 4 | DONE | P1 tests/README/settings | DONE (round 2) |
-| 5 | DONE | P1 tests | TODO |
+| 5 | DONE | P1 tests | DONE (round 2) |
 | 6 | DONE | P1 validation/logout/tests | DONE (round 2) |
 | 7 | DONE | P2 legacy-vs-new proof | TODO |
 | 8 | DONE | P0 bug + P1 tests/observability | DONE (round 2) |
@@ -76,6 +76,14 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
   they are documented as "not reproduced" and kept as guards. Mutation check: drop `-id` →
   `assert [2, 1, 3, 4, 5] == [5, 4, 3, 2, 1]`; drop creator check → `assert 200 == 403`; drop
   destination check → `assert 201 == 403`; skip decision-maker write → `assert None == 2`.
+- T5 DONE. Orchestrator gate: `ruff format .` 19 unchanged, `ruff check .` All checks passed!,
+  `ruff format --check .` 19 already formatted, `pytest -q` 24 passed in 0.63s;
+  `pytest --collect-only -q | tail -1` 24 tests collected. Verified the concurrency helpers open each
+  PostgreSQL connection before `barrier.wait()` and keep it open through the PID assertions.
+  Rollback and cross-class key race were documented as "not reproduced" with stronger tests;
+  `ClassNotFound` (404) and the post-insert seam were added. Mutation check: drop lock → `assert 17 == 3`,
+  flip capacity → `DID NOT RAISE ReservationConflict`, drop `atomic()` → `TransactionManagementError`,
+  move hook outside `atomic()` → `assert 1 == 0`, drop error mapping → `assert 'DoesNotExist' == 'ClassNotFound'`.
 
 ## Clean-clone verification (final)
 

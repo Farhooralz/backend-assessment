@@ -13,6 +13,12 @@ class ReservationConflict(Exception):
     status_code = CONFLICT_STATUS
 
 
+class ClassNotFound(Exception):
+    """An unknown class id; the HTTP layer would answer with status 404."""
+
+    status_code = 404
+
+
 def _find_by_user_and_key(user_id: int, key: str) -> Reservation | None:
     """Find the row a repeated idempotency key must reuse."""
     return Reservation.objects.filter(user_id=user_id, key=key).first()
@@ -44,14 +50,22 @@ def _insert(gym_class: GymClass, user_id: int, key: str) -> int:
         raise
 
 
+def _after_insert(gym_class: GymClass, user_id: int, key: str) -> None:
+    """No-op seam for failing after the write but before COMMIT, while the lock is held."""
+    return None
+
+
 def reserve(class_id: int, user_id: int, key: str) -> int:
-    """Reserve a seat, return its id, or raise ReservationConflict for a 409.
+    """Reserve a seat, return its id, or raise a defined conflict/not-found error.
 
     The class row is locked with SELECT FOR UPDATE before any user-scoped read,
     so capacity cannot be oversubscribed by concurrent workers.
     """
     with transaction.atomic():
-        gym_class = GymClass.objects.select_for_update().get(pk=class_id)
+        try:
+            gym_class = GymClass.objects.select_for_update().get(pk=class_id)
+        except GymClass.DoesNotExist as exc:
+            raise ClassNotFound(f"class {class_id} does not exist") from exc
         existing = _find_by_user_and_key(user_id, key)
         if existing is not None:
             return _resolve_existing(existing, class_id)
@@ -59,4 +73,6 @@ def reserve(class_id: int, user_id: int, key: str) -> int:
             raise ReservationConflict("user already reserved this class")
         if Reservation.objects.filter(gym_class=gym_class).count() >= gym_class.capacity:
             raise ReservationConflict("class is full")
-        return _insert(gym_class, user_id, key)
+        reservation_id = _insert(gym_class, user_id, key)
+        _after_insert(gym_class, user_id, key)
+        return reservation_id

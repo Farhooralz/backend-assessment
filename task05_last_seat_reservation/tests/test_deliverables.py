@@ -26,7 +26,7 @@ def test_spec_real_postgresql_not_sqlite() -> None:
     assert connection.vendor == "postgresql"
 
 
-def test_spec_migration_file_present() -> None:
+def test_extra_migration_file_present() -> None:
     """A checked-in migration creates both unique constraints."""
     migration_dir = ROOT / "reservations" / "migrations"
     files = sorted(path for path in migration_dir.glob("0*.py"))
@@ -66,8 +66,8 @@ def test_spec_select_for_update_locks_class_row_first() -> None:
     assert Reservation.objects.filter(pk=reservation_id).exists()
 
 
-def test_spec_no_in_process_lock() -> None:
-    """The service must not rely on a process-local mutex."""
+def test_extra_no_in_process_lock_source_check() -> None:
+    """Extra presence check; behaviour is proved by the distinct-PID concurrency tests."""
     source = inspect.getsource(services)
     assert "threading.Lock" not in source
     assert "RLock" not in source
@@ -87,14 +87,14 @@ def test_spec_ensure_db_management_command() -> None:
     assert "task05" in output.getvalue()
 
 
-def test_spec_conftest_uses_shared_ensure_database() -> None:
+def test_extra_conftest_uses_shared_ensure_database() -> None:
     """The pytest fixture and the management command call the same helper."""
     text = (ROOT / "conftest.py").read_text()
     assert "ensure_database()" in text
 
 
-def test_spec_lock_order_explained_in_readme() -> None:
-    """The README explains why the class row is always locked first."""
+def test_extra_lock_order_documented_in_readme() -> None:
+    """Extra presence check; lock-order behaviour is proved by the reserve/concurrency tests."""
     text = (ROOT / "README.md").read_text()
     lowered = text.lower()
     assert "lock order" in lowered
