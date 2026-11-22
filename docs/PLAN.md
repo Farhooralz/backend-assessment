@@ -106,15 +106,17 @@ Update as we go (`[ ]` → `[x]`).
 |---|------|:-:|:-:|:-:|:-:|:-:|:-:|
 | 0 | Skeleton + Docker + CI | [x] | n/a | [x] | [x] | [ ] (Docker/CI not runnable in my sandbox; verify on your machine) | [ ] |
 | 1 | Stream merge | [x] | [x] | [x] | [x] | [x] | [ ] (your job: read `stream_merge.py` + README) |
-| 2 | Pricing engine | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 3 | Court report | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 4 | Goods transfer API | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 5 | Last-seat reservation | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 6 | JWT + branch access | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 7 | Debtors refactor | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 8 | Receipt outbox | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 9 | Cancellation tests | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 10 | ERP architecture doc | [ ] | n/a | n/a | [ ] | [ ] | [ ] |
+| 2 | Pricing engine | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 3 | Court report | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 4 | Goods transfer API | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 5 | Last-seat reservation | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 6 | JWT + branch access | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 7 | Debtors refactor | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 8 | Receipt outbox | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 9 | Cancellation tests | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 10 | ERP architecture doc | [x] | n/a | n/a | [x] | [x] | [ ] |
+
+Note (2026-11-22): AGENTS.md autonomous mode overrides the human-writer/human-committer assumption above. Tasks 2-10 are implemented, gated and clean-clone verified; the CI workflow was intentionally not built because AGENTS.md forbids it. The last column (human explanation) is intentionally left unchecked.
  
 ## 4. GitHub
  
