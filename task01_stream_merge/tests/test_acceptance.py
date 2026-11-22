@@ -151,6 +151,13 @@ def test_given_65_streams_then_a_clear_error_is_raised():
         list(merge(streams))
 
 
+def test_spec_too_many_streams_is_rejected_eagerly_at_merge_call_time():
+    streams = [stream([(i, "A", 1)]) for i in range(MAX_STREAMS + 1)]
+    with pytest.raises(TooManyStreamsError) as info:
+        merge(streams)  # no list(), no next(): validation belongs to the call itself
+    assert "64" in str(info.value)
+
+
 def test_given_streams_supplied_by_a_generator_then_they_are_accepted():
     assert list(merge(stream([(1, "A", 1)]) for _ in range(3))) == [(1, "A", 1)]
 
@@ -174,6 +181,22 @@ def test_all_module_errors_share_one_base_class():
         ConflictingAmountError,
     ):
         assert issubclass(cls, MergeError) and issubclass(MergeError, ValueError)
+
+
+def test_spec_mixed_type_sort_keys_raise_a_dedicated_error_with_a_helpful_message():
+    """Unlike sort-key types must never leak a bare TypeError from heapq or tuple ordering."""
+    with pytest.raises(stream_merge.IncompatibleKeyError) as info:
+        list(merge([stream([(1, "A", 7)]), stream([("later", "B", 8)])]))
+    err = info.value
+    assert isinstance(err, MergeError) and isinstance(err, ValueError)
+    message = str(err)
+    assert "time" in message and "int" in message and "str" in message
+
+    # The same guard covers the id component and keys mixed inside a single stream.
+    with pytest.raises(stream_merge.IncompatibleKeyError):
+        list(merge([stream([(1, "A", 7)]), stream([(1, 2, 8)])]))
+    with pytest.raises(stream_merge.IncompatibleKeyError):
+        list(merge([stream([(1, "A", 7), ("later", "B", 8)])]))
 
 
 # ------------------------------------------------------- lazy / infinite iterators

@@ -26,7 +26,8 @@ pytest -q
 pytest -q --cov=stream_merge --cov-report=term-missing   # 100% of stream_merge.py
 ```
 
-Result when this README was written: `36 passed`, coverage `100%`, `ruff check` and `ruff format --check` clean.
+Result when this README was written: `38 passed`, coverage `100%` (85 statements), `ruff check` and
+`ruff format --check` clean with `ruff==0.17.6`.
 
 ## How it works
 
@@ -44,29 +45,45 @@ Let `N` be the total number of input events and `k <= 64` the number of streams.
 
 ## Memory measurement
 
-Measured with `tracemalloc` (`python measure_memory.py`, Python 3.12.3). Output is consumed without
+Measured with `tracemalloc` (`python measure_memory.py`, Python 3.12.16). Output is consumed without
 being stored.
 
 | Input | Events out | Peak memory |
 |---|---:|---:|
-| 8 streams x 1,000 | 8,000 | 2.0 KiB |
-| 8 streams x 10,000 | 80,000 | 1.9 KiB |
-| 8 streams x 100,000 | 800,000 | 1.9 KiB |
-| 8 streams x 20,000 | 160,000 | 1.9 KiB |
+| 8 streams x 1,000 | 8,000 | 2.3 KiB |
+| 8 streams x 10,000 | 80,000 | 2.1 KiB |
+| 8 streams x 100,000 | 800,000 | 2.0 KiB |
+| 8 streams x 20,000 | 160,000 | 2.0 KiB |
 | 32 streams x 20,000 | 640,000 | 7.3 KiB |
-| 64 streams x 20,000 | 1,280,000 | 11.4 KiB |
-| 1 infinite stream, `islice(500000)` | 500,000 | 0.6 KiB |
+| 64 streams x 20,000 | 1,280,000 | 11.5 KiB |
+| 1 infinite stream, `islice(500000)` | 500,000 | 1.2 KiB |
 
 Data grows 100x with no change in peak memory; peak grows only with the number of streams.
 
 ## Assumptions
 
-- Errors surface on the first `next()`, because `merge` is a generator and reads nothing before that.
+- `merge(...)` validates the stream count eagerly and raises `TooManyStreamsError` at call time when
+  more than 64 streams are supplied. No stream is consumed until the first `next()`; every other
+  error therefore still surfaces lazily, on the `next()` that reaches it.
 - "Sorted" means non-decreasing `(time, id)`. Equal keys with equal amounts are legal; equal keys with
   different amounts are a conflict, not an unsorted-input error.
-- An event is valid if it unpacks into exactly three items; no further type validation.
-- More than 64 streams raises `TooManyStreamsError`.
+- An event is valid if it unpacks into exactly three items. Sort-key components (`time`, `id`) must be
+  orderable against the first key seen; otherwise `IncompatibleKeyError` names the component, the
+  two values and their types. The type of `amount` is not validated.
+- `IncompatibleKeyError` is a `MergeError` (and therefore a `ValueError`), like the other errors.
+- Dependencies are pinned exactly, including `ruff==0.17.6`, so the quality gate works in a clean clone.
+
+## Mutation spot-check
+
+Three deliberate breakages were applied to `stream_merge.py`, each confirmed to fail tests, then reverted:
+
+| Mutation | Test that caught it |
+|---|---|
+| Removed the eager `len(iterators) >= MAX_STREAMS` check from `merge()` | `test_spec_too_many_streams_is_rejected_eagerly_at_merge_call_time` (and the older 65-stream test) |
+| Added an early `return` to `_check_key_types()` | `test_spec_mixed_type_sort_keys_raise_a_dedicated_error_with_a_helpful_message` (raw `TypeError` from `heapq` returned) |
+| Flipped the cross-stream check `other_amount != amount` to `==` | conflict tests in `test_acceptance.py` and `test_properties.py` |
 
 ## Unfinished
 
-Nothing required by the spec. Not covered: validating the types of `time`, `id` and `amount`.
+Nothing required by the spec. Not covered: validating the type of `amount`, or requiring one concrete
+type for `time`/`id` (only mutual orderability of keys is checked).
