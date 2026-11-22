@@ -79,4 +79,10 @@ def test_spec_fourth_policy_peak_surcharge_composes_in_engine() -> None:
     peak = engine.quote(Decimal("1000"), QuoteContext(19))
     assert off_peak.final_amount == Decimal("1150")
     assert peak.final_amount == Decimal("1650")
-    assert [effect.name for effect in peak.breakdown][-1] == "PeakSurcharge"
+    # The spec puts the fixed credit at the end, whatever the caller's input order.
+    assert [effect.name for effect in peak.breakdown] == [
+        "HourMultiplier",
+        "PercentDiscount",
+        "PeakSurcharge",
+        "FixedCredit",
+    ]

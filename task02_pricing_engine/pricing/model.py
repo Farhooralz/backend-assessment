@@ -3,6 +3,14 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import ClassVar
+
+# Stages are public so an external Policy can place itself without editing the engine.
+STAGE_MULTIPLIER = 10
+STAGE_DISCOUNT = 20
+STAGE_SURCHARGE = 30
+STAGE_CREDIT = 40
+STAGE_EXTERNAL = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +52,7 @@ class Policy(ABC):
     """A single pricing rule; implementations live outside the engine."""
 
     name: str = ""
+    stage: ClassVar[int] = STAGE_EXTERNAL
 
     @abstractmethod
     def apply(self, amount: Decimal, context: QuoteContext) -> Decimal:

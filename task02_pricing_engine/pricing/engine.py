@@ -1,4 +1,4 @@
-"""The quote engine: an ordered composition of policies."""
+"""The quote engine: a stage-ordered composition of policies."""
 
 from collections.abc import Iterable
 from decimal import ROUND_HALF_UP, Decimal
@@ -10,11 +10,19 @@ _RIAL = Decimal("1")
 _ZERO = Decimal("0")
 
 
+def _policy_stage(policy: Policy) -> int:
+    """Validate the declared stage; sorted() keeps caller order on ties."""
+    stage = policy.stage
+    if isinstance(stage, bool) or not isinstance(stage, int):
+        raise TypeError(f"{policy.name}.stage must be an int, got {type(stage).__name__}")
+    return stage
+
+
 class QuoteEngine:
-    """Apply policies in order, clamp at zero, round to rials only at the end."""
+    """Apply policies by stage, clamp at zero, round to rials only at the end."""
 
     def __init__(self, policies: Iterable[Policy]) -> None:
-        self._policies = tuple(policies)
+        self._policies = tuple(sorted(policies, key=_policy_stage))
 
     def quote(self, base_amount: Decimal | int, context: QuoteContext) -> QuoteResult:
         """Return the final rial amount and the per-policy breakdown."""
