@@ -61,12 +61,25 @@ Pure-logic tasks (2, 9) also: `pytest -q --cov=<module> --cov-report=term-missin
 Note: ruff also formats Python code blocks inside README.md, so run `ruff format .` first.
 
 ## Infrastructure (tasks 3-8)
-- `cp .env.example .env` (git-ignored), then `docker compose up -d` from the repo root. Read `POSTGRES_*`
-  and `REDIS_*` from the environment. If Docker is unavailable, use a local PostgreSQL/Redis through the
-  same env vars; if neither exists, mark the task `BLOCKED: no postgres` and continue.
-- Tasks run in parallel, so isolate them: Django `NAME` is `task03`, `task04`, ... (pytest-django creates
-  `test_taskNN`), and Redis uses a different DB index per task (`redis://.../3`, `/6`, `/8`).
-- Tasks 5 and 8 need real PostgreSQL. Never SQLite there.
+Get PostgreSQL + Redis running with this order, stop at the first one that works:
+1. Docker: `cp -n .env.example .env && docker compose up -d`. If it prints "permission denied" (or any
+   docker error), do NOT mark anything BLOCKED, go to step 2.
+2. No-Docker fallback (no root needed): `scripts/local_infra.sh start`. It installs real PostgreSQL 16 and
+   Redis into a git-ignored venv, starts them, and writes `.env`. Check with `scripts/local_infra.sh status`.
+3. Only if both fail, mark the tasks `BLOCKED: no postgres` with the exact error in `docs/STATUS.md`.
+
+Env contract (the same for both options). Task settings read these with `os.environ`:
+`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`.
+With the fallback, `POSTGRES_HOST` is a unix-socket directory and `POSTGRES_PORT` / `POSTGRES_PASSWORD` are
+empty. Pass them to Django as they are (empty string is fine). Defaults when unset: host `localhost`,
+port `5432`, user `assessment`, Redis `127.0.0.1:6379`. In every README, the test command loads the file:
+`set -a; . ../.env; set +a; pytest -q`.
+
+Isolation, because tasks run in parallel: Django `NAME` is `task03`, `task04`, ... and must be created
+before tests (`createdb`-style via `psycopg` in a `conftest.py` fixture or a management command);
+pytest-django then creates `test_taskNN`. Redis uses a different DB index per task (`/3`, `/6`, `/8`).
+Tasks 5 and 8 need real PostgreSQL. Never SQLite there. The fallback Redis is 6.2; use only commands that
+exist in 6.2.
 
 ## Code standards
 - Python 3.12+, type hints on public functions, short docstrings that say *why*.

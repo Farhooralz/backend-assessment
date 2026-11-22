@@ -27,3 +27,7 @@ media/
 .vscode/
 .idea/
 .DS_Store
+
+# local no-docker infrastructure
+.local-infra/
+.infra-venv/

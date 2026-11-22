@@ -29,9 +29,10 @@ Folder names: `task02_pricing_engine`, `task03_court_report`, `task04_goods_tran
 
 ## How to run a wave
 
-1. Before wave 2: run `cp -n .env.example .env`, then `docker compose up -d`, then wait until
-   `docker compose ps` shows postgres and redis healthy. Do not print `.env` values. If this fails, follow the
-   "Infrastructure" section of `AGENTS.md`.
+1. Before wave 2: bring up PostgreSQL + Redis exactly as the "Infrastructure" section of `AGENTS.md` says
+   (Docker first; if Docker fails for any reason, run `scripts/local_infra.sh start`). Verify with a real
+   connection test (psql/psycopg and `redis ping`), and do not print `.env` values. Docker permission errors
+   are NOT a reason to block tasks.
 2. Set the tasks of the wave to `IN_PROGRESS` in `docs/STATUS.md`.
 3. Launch ALL subagents of the wave in ONE message (several Task tool calls at once, subagent type
    `general`) so they truly run in parallel. Give each subagent the brief below, filled in.
