@@ -11,7 +11,7 @@ Infrastructure note: `docker compose up -d` failed with "permission denied". The
 | 3 | `task03_court_report` | DONE | 15 tests pass on PostgreSQL; 4 queries for 50 courts; EXPLAIN ANALYZE recorded; gate re-run by orchestrator. |
 | 4 | `task04_goods_transfer_api` | IN_PROGRESS | Wave 2; PostgreSQL up. |
 | 5 | `task05_last_seat_reservation` | TODO | Wave 3; PostgreSQL + Redis up. |
-| 6 | `task06_jwt_branch_access` | IN_PROGRESS | Wave 2; PostgreSQL + Redis up. |
+| 6 | `task06_jwt_branch_access` | DONE | 32 tests pass on PostgreSQL + Redis; IDOR, rotation, rate limit and token-log tests covered; gate re-run by orchestrator. |
 | 7 | `task07_debtors_refactor` | DONE | 19 tests pass on PostgreSQL; 2 queries for 100 invoices; defect report recorded; gate re-run by orchestrator. |
 | 8 | `task08_receipt_outbox` | TODO | Wave 3; PostgreSQL + Redis up. |
 | 9 | `task09_cancellation_tests` | DONE | 26 tests pass; coverage 100%; mutation checker caught all 3 defects; clean-clone gate green. |
