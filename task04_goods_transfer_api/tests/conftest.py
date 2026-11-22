@@ -1,38 +1,14 @@
 """Database bootstrap and shared fixtures for the goods-transfer API tests."""
 
-import contextlib
-import os
-
-import psycopg
 import pytest
 from rest_framework.test import APIClient
 
-
-def _connection(**overrides):
-    """Connect to the maintenance database using the task environment contract."""
-    params = {
-        "host": os.environ.get("POSTGRES_HOST", "localhost"),
-        "user": os.environ.get("POSTGRES_USER", "assessment"),
-        "dbname": "postgres",
-    }
-    port = os.environ.get("POSTGRES_PORT", "5432")
-    if port:
-        params["port"] = int(port)
-    password = os.environ.get("POSTGRES_PASSWORD", "")
-    if password:
-        params["password"] = password
-    params.update(overrides)
-    return psycopg.connect(**params)
+from transfer.db_bootstrap import ensure_database
 
 
 def pytest_sessionstart(session):
     """Create the per-task database before pytest-django builds test_task04."""
-    with (
-        _connection(autocommit=True) as connection,
-        connection.cursor() as cursor,
-        contextlib.suppress(psycopg.errors.DuplicateDatabase),
-    ):
-        cursor.execute("CREATE DATABASE task04")
+    ensure_database()
 
 
 @pytest.fixture

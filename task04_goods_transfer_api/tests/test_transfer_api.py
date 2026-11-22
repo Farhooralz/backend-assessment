@@ -258,6 +258,27 @@ def test_spec_status_filter(api_client, employee, manager, branch_a, branch_b):
     ] == []
 
 
+def test_spec_default_page_size_is_20(api_client, employee, branch_a, branch_b):
+    api_client.force_login(employee)
+    TransferRequest.objects.bulk_create(
+        TransferRequest(
+            source=branch_a,
+            destination=branch_b,
+            item_name="balls",
+            quantity=1,
+            created_by=employee,
+        )
+        for _ in range(21)
+    )
+
+    first = api_client.get(LIST_URL)
+    assert first.status_code == 200
+    assert first.data["count"] == 21
+    assert len(first.data["results"]) == 20
+    second = api_client.get(LIST_URL, {"page": 2})
+    assert len(second.data["results"]) == 1
+
+
 def test_spec_pagination_with_stable_ordering(api_client, employee, branch_a, branch_b):
     api_client.force_login(employee)
     created_ids = [post_create(api_client, branch_a, branch_b).data["id"] for _ in range(5)]
@@ -267,13 +288,13 @@ def test_spec_pagination_with_stable_ordering(api_client, employee, branch_a, br
 
     seen = []
     for page in (1, 2, 3):
-        response = api_client.get(LIST_URL, {"page": page})
+        response = api_client.get(LIST_URL, {"page": page, "page_size": 2})
         assert response.status_code == 200
         assert response.data["count"] == 5
         assert len(response.data["results"]) == (1 if page == 3 else 2)
         seen.extend(row["id"] for row in response.data["results"])
     assert seen == created_ids
-    assert api_client.get(LIST_URL, {"page": 4}).status_code == 404
+    assert api_client.get(LIST_URL, {"page": 4, "page_size": 2}).status_code == 404
 
 
 @pytest.mark.parametrize(

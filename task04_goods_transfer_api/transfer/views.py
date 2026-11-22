@@ -22,9 +22,9 @@ from transfer.services import (
 
 
 class TransferPagination(PageNumberPagination):
-    """Small pages make the stable ordering easy to observe."""
+    """Default page size is a production value; tests opt into smaller pages."""
 
-    page_size = 2
+    page_size = 20
     page_size_query_param = "page_size"
     max_page_size = 100
 
