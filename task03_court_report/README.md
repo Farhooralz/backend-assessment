@@ -13,10 +13,14 @@ cd task03_court_report
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 set -a; . ../.env; set +a
+DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django ensure_db
 DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django migrate --noinput
 DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django seed_bookings --bookings 100000
 ```
 
+`ensure_db` calls `reports.db_utils.ensure_database()`: it uses psycopg with the documented env vars,
+creates `task03` if it is absent and is a no-op if it already exists. `tests/conftest.py` calls the
+same helper in `pytest_sessionstart`, so a fresh checkout can run both commands in either order.
 `seed_bookings` defaults to 100,000 bookings. It uses batched `bulk_create` (5,000 per batch) and creates
 20 courts, 10 tags, two payments and two tag links per booking. Settings read `POSTGRES_HOST`,
 `POSTGRES_PORT`, `POSTGRES_USER` and `POSTGRES_PASSWORD` from the environment; the socket directory and
@@ -29,17 +33,18 @@ cd task03_court_report
 (set -a; . ../.env; set +a; .venv/bin/python -m pytest -q)
 ```
 
-Result (final gate, real output): `15 passed in 8.94s`.
+Result (final gate, real output): `19 passed in 9.45s`.
 
-Gate (real output: `All checks passed!`, `15 passed`):
+Gate (real output: `19 files left unchanged`, `All checks passed!`, `19 files already formatted`,
+`19 passed in 9.45s`):
 
 ```bash
 .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && \
   (set -a; . ../.env; set +a; .venv/bin/python -m pytest -q)
 ```
 
-`tests/conftest.py` uses `psycopg` in `pytest_sessionstart` to `CREATE DATABASE task03` if missing, then
-pytest-django builds `test_task03`. No Redis is used; if it were, only DB index `/3` would apply.
+pytest-django then creates `test_task03` from the base database. No Redis is used; if it were, only DB
+index `/3` would apply.
 
 ## Deliverables
 
@@ -57,7 +62,9 @@ pytest-django builds `test_task03`. No Redis is used; if it were, only DB index 
 | Equivalence | `test_spec_naive_equals_optimized` | identical `CourtReportRow` lists for mixed confirmed/unconfirmed, in/out-of-range and empty courts |
 | Seed 100,000 | `seed_bookings` | `Seeded 100000 bookings.` in 9.6 s wall clock; test asserts 100,000 bookings, ≥100,000 payments and tag links |
 | Suggested indexes | `Booking.Meta.indexes`, `Payment.Meta.indexes` | `booking_court_start_idx (court, start_date)`, `booking_start_idx (start_date)`, `payment_booking_success_idx (booking, successful)`; all verified in `pg_indexes` |
-| EXPLAIN ANALYZE | `reports/benchmark.py`, below | real plans from the 100,000-booking database |
+| Fresh-setup DB | `reports/db_utils.py`, `ensure_db` | one `ensure_database()` helper used by conftest and command; idempotency and repeatability tests pass |
+| Real benchmark SQL | `reports/benchmark.py` | `CaptureQueriesContext` captures both services; test proves every EXPLAINed statement came verbatim from those captures |
+| EXPLAIN ANALYZE | `reports/benchmark.py`, below | real plans of the captured ORM statements on the 100,000-booking database |
 
 The 200 / count 1 / three-tag sample passes for **both** services; a failed 30-rial payment is excluded,
 so collected is `Decimal("200.00")` rather than 230.
@@ -71,94 +78,169 @@ bookings × payments (`Count(DISTINCT b.id)`, `SUM(p.amount) FILTER (WHERE p.suc
 ## EXPLAIN ANALYZE comparison
 
 Measured on PostgreSQL 16.2 with 100,000 bookings (80,000 confirmed in range), 200,000 payments and
-200,000 tag links. Command used (after `ANALYZE` of the four tables):
+200,000 tag links. Both services were run for the same filter (`2026-06-16` to `2026-06-16`, page 4,
+page size 2); `benchmark.py` captures the exact SQL Django executes with `CaptureQueriesContext` and
+feeds those strings unchanged to `EXPLAIN (ANALYZE, BUFFERS)`. The tables had just been `ANALYZE`d.
+Command used:
 
 ```bash
 set -a; . ../.env; set +a
-DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python - <<'PY'
-import django; django.setup()
-from datetime import date
-from django.db import connection
-from reports.benchmark import naive_report_sql, optimized_report_sql, optimized_tags_sql
-with connection.cursor() as cur:
-    for label, sql in (("BEFORE", naive_report_sql(date(2026,1,1), date(2026,12,31))),
-                       ("AFTER-payments", optimized_report_sql(date(2026,1,1), date(2026,12,31))),
-                       ("AFTER-tags", optimized_tags_sql(date(2026,1,1), date(2026,12,31)))):
-        cur.execute("EXPLAIN (ANALYZE, BUFFERS) " + sql)
-        print("===", label, "===")
-        for row in cur.fetchall(): print(row[0])
-PY
+DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django shell --verbosity 0 -c "from reports.benchmark import main; main()"
 ```
 
-BEFORE — one join of payments **and** tags (wrong sums, 320,004 intermediate rows, spilled sort):
+Measured query counts for that call: naive **142**, optimized **4**. Wall clock over five warm runs:
+naive median **47.6 ms** (52.4, 49.4, 47.6, 47.4, 45.4), optimized median **2.9 ms** (3.3, 2.9, 2.8,
+2.5, 3.0).
+
+BEFORE-bookings — the per-court query repeated once per court:
 
 ```text
-Limit  (cost=47918.74..129327.73 rows=20 width=93) (actual time=191.280..520.045 rows=20 loops=1)
-  ->  GroupAggregate  (cost=47918.74..129327.73 rows=20 width=93) (actual time=191.279..520.031 rows=20 loops=1)
-        ->  Incremental Sort  (cost=47918.74..126802.33 rows=252510 width=453) (actual time=178.010..408.492 rows=320004 loops=1)
-              ->  Hash Right Join  (cost=8430.03..15229.13 rows=252510 width=30) (actual time=69.428..136.545 rows=320000 loops=1)
-                    ->  Seq Scan on reports_booking_tags bt  (cost=0.00..3274.00 rows=200000 width=16) (actual time=0.006..9.424 rows=200000 loops=1)
-                    ->  Seq Scan on reports_payment p  (cost=0.00..3274.00 rows=159800 width=14) (actual time=0.006..11.551 rows=160000 loops=1)
-              ->  Sort  (cost=43931.33..44562.61 rows=252510 width=30) (actual time=177.902..197.911 rows=320000 loops=1)
-                    Sort Method: external merge  Disk: 13200kB
-                    Buffers: shared hit=3185, temp read=2599 written=2605
-Planning Time: 1.086 ms
-Execution Time: 521.995 ms
+SQL: SELECT "reports_booking"."id", "reports_booking"."court_id", "reports_booking"."start_date", "reports_booking"."confirmed" FROM "reports_booking" WHERE ("reports_booking"."court_id" = 7 AND "reports_booking"."confirmed" AND "reports_booking"."start_date" >= '2026-06-16'::date AND "reports_booking"."start_date" <= '2026-06-16'::date)
+Bitmap Heap Scan on reports_booking  (cost=4.47..54.49 rows=11 width=21) (actual time=0.010..0.039 rows=69 loops=1)
+  Recheck Cond: ((court_id = 7) AND (start_date >= '2026-06-16'::date) AND (start_date <= '2026-06-16'::date))
+  Filter: confirmed
+  Heap Blocks: exact=69
+  Buffers: shared hit=71
+  ->  Bitmap Index Scan on booking_court_start_idx  (cost=0.00..4.47 rows=14 width=0) (actual time=0.004..0.005 rows=69 loops=1)
+        Index Cond: ((court_id = 7) AND (start_date >= '2026-06-16'::date) AND (start_date <= '2026-06-16'::date))
+        Buffers: shared hit=2
+Planning Time: 0.030 ms
+Execution Time: 0.047 ms
 ```
 
-AFTER-payments — grouped aggregate, no tag join (160,000 rows, correct sums):
+BEFORE-payments — one statement per booking (here booking 167, 2 rows):
 
 ```text
-GroupAggregate  (cost=20343.72..21626.16 rows=20 width=48) (actual time=104.807..127.723 rows=16 loops=1)
-  Group Key: b.court_id
-  ->  Sort  (cost=20343.72..20664.27 rows=128219 width=22) (actual time=103.322..111.724 rows=160000 loops=1)
-        Sort Method: external merge  Disk: 5024kB
-        Buffers: shared hit=1911, temp read=628 written=630
-        ->  Hash Right Join  (cost=3139.96..6833.46 rows=128219 width=22) (actual time=13.655..48.747 rows=160000 loops=1)
-              ->  Seq Scan on reports_payment p  (cost=0.00..3274.00 rows=159800 width=14) (actual time=0.006..10.968 rows=160000 loops=1)
-              ->  Seq Scan on reports_booking b  (cost=0.00..2137.00 rows=80237 width=16) (actual time=0.007..6.998 rows=80000 loops=1)
-Planning Time: 0.181 ms
-Execution Time: 128.230 ms
+SQL: SELECT "reports_payment"."id", "reports_payment"."booking_id", "reports_payment"."amount", "reports_payment"."successful" FROM "reports_payment" WHERE "reports_payment"."booking_id" = 167
+Index Scan using reports_payment_booking_id_64908cc3 on reports_payment  (cost=0.42..8.46 rows=2 width=22) (actual time=0.004..0.004 rows=2 loops=1)
+  Index Cond: (booking_id = 167)
+  Buffers: shared hit=4
+Planning Time: 0.014 ms
+Execution Time: 0.007 ms
 ```
 
-AFTER-tags — the separate distinct-tag query:
+BEFORE-tags — one more statement per booking:
 
 ```text
-Unique  (cost=8212.47..8237.97 rows=3400 width=426) (actual time=53.557..54.565 rows=32 loops=1)
-  ->  HashAggregate  (cost=6639.04..6673.04 rows=3400 width=426) (actual time=51.594..51.614 rows=32 loops=2)
-        ->  Hash Join  (cost=3153.79..6167.06 rows=94396 width=426) (actual time=15.587..42.733 rows=80000 loops=2)
-              ->  Parallel Seq Scan on reports_booking_tags bt  (cost=0.00..2450.47 rows=117647 width=16) (actual time=0.006..5.259 rows=100000 loops=2)
-              ->  Seq Scan on reports_tag t  (cost=0.00..11.70 rows=170 width=426) (actual time=0.011..0.012 rows=10 loops=2)
-Planning Time: 0.236 ms
-Execution Time: 54.627 ms
+SQL: SELECT "reports_tag"."id", "reports_tag"."name" FROM "reports_tag" INNER JOIN "reports_booking_tags" ON ("reports_tag"."id" = "reports_booking_tags"."tag_id") WHERE "reports_booking_tags"."booking_id" = 167
+Hash Join  (cost=4.48..5.62 rows=2 width=19) (actual time=0.008..0.010 rows=2 loops=1)
+  Hash Cond: (reports_tag.id = reports_booking_tags.tag_id)
+  Buffers: shared hit=5
+  ->  Seq Scan on reports_tag  (cost=0.00..1.10 rows=10 width=19) (actual time=0.001..0.002 rows=10 loops=1)
+        Buffers: shared hit=1
+  ->  Hash  (cost=4.45..4.45 rows=2 width=8) (actual time=0.004..0.004 rows=2 loops=1)
+        Buckets: 1024  Batches: 1  Memory Usage: 9kB
+        Buffers: shared hit=4
+        ->  Index Only Scan using reports_booking_tags_booking_id_tag_id_28903b39_uniq on reports_booking_tags  (cost=0.42..4.45 rows=2 width=8) (actual time=0.002..0.003 rows=2 loops=1)
+              Index Cond: (booking_id = 167)
+              Heap Fetches: 0
+              Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=4
+Planning Time: 0.058 ms
+Execution Time: 0.016 ms
 ```
 
-Set-based total: **128.230 + 54.627 = 182.857 ms** versus **521.995 ms** for the multiplying join, and
-**4 versus 252 Python-side queries** for the page of 50 courts. The composite `booking_court_start_idx`
-is used by Django's per-court plans on a page of 50 courts; the full-table aggregates above choose
-sequential scans because every court in the seeded set matches.
+AFTER-aggregates — one grouped statement for the whole page, no tag join:
+
+```text
+SQL: SELECT "reports_booking"."court_id" AS "court_id", COUNT(DISTINCT "reports_booking"."id") AS "booking_count", SUM("reports_payment"."amount") FILTER (WHERE "reports_payment"."successful") AS "collected" FROM "reports_booking" LEFT OUTER JOIN "reports_payment" ON ("reports_booking"."id" = "reports_payment"."booking_id") WHERE ("reports_booking"."confirmed" AND "reports_booking"."court_id" IN (7, 8) AND "reports_booking"."start_date" >= '2026-06-16'::date AND "reports_booking"."start_date" <= '2026-06-16'::date) GROUP BY 1
+GroupAggregate  (cost=291.47..292.07 rows=13 width=48) (actual time=0.218..0.219 rows=1 loops=1)
+  Group Key: reports_booking.court_id
+  Buffers: shared hit=349
+  ->  Sort  (cost=291.47..291.58 rows=44 width=22) (actual time=0.197..0.201 rows=138 loops=1)
+        Sort Key: reports_booking.court_id, reports_booking.id
+        Sort Method: quicksort  Memory: 31kB
+        Buffers: shared hit=349
+        ->  Nested Loop Left Join  (cost=9.36..290.27 rows=44 width=22) (actual time=0.015..0.182 rows=138 loops=1)
+              Buffers: shared hit=349
+              ->  Bitmap Heap Scan on reports_booking  (cost=8.94..103.82 rows=22 width=16) (actual time=0.011..0.044 rows=69 loops=1)
+                    Recheck Cond: ((court_id = ANY ('{7,8}'::bigint[])) AND (start_date >= '2026-06-16'::date) AND (start_date <= '2026-06-16'::date))
+                    Filter: confirmed
+                    Heap Blocks: exact=69
+                    Buffers: shared hit=73
+                    ->  Bitmap Index Scan on booking_court_start_idx  (cost=0.00..8.94 rows=28 width=0) (actual time=0.006..0.006 rows=69 loops=1)
+                          Index Cond: ((court_id = ANY ('{7,8}'::bigint[])) AND (start_date >= '2026-06-16'::date) AND (start_date <= '2026-06-16'::date))
+                          Buffers: shared hit=4
+              ->  Index Scan using reports_payment_booking_id_64908cc3 on reports_payment  (cost=0.42..8.46 rows=2 width=14) (actual time=0.002..0.002 rows=2 loops=69)
+                    Index Cond: (booking_id = reports_booking.id)
+                    Buffers: shared hit=276
+Planning:
+  Buffers: shared hit=14
+Planning Time: 0.101 ms
+Execution Time: 0.233 ms
+```
+
+AFTER-tags — the separate distinct-tag statement:
+
+```text
+SQL: SELECT DISTINCT "reports_booking"."court_id" AS "court_id", "reports_tag"."name" AS "tags__name" FROM "reports_booking" LEFT OUTER JOIN "reports_booking_tags" ON ("reports_booking"."id" = "reports_booking_tags"."booking_id") LEFT OUTER JOIN "reports_tag" ON ("reports_booking_tags"."tag_id" = "reports_tag"."id") WHERE ("reports_booking"."confirmed" AND "reports_booking"."court_id" IN (7, 8) AND "reports_booking"."start_date" >= '2026-06-16'::date AND "reports_booking"."start_date" <= '2026-06-16'::date)
+Unique  (cost=206.15..206.48 rows=44 width=19) (actual time=0.259..0.280 rows=2 loops=1)
+  Buffers: shared hit=285
+  ->  Sort  (cost=206.15..206.26 rows=44 width=19) (actual time=0.259..0.265 rows=138 loops=1)
+        Sort Key: reports_booking.court_id, reports_tag.name
+        Sort Method: quicksort  Memory: 31kB
+        Buffers: shared hit=285
+        ->  Nested Loop Left Join  (cost=9.51..204.95 rows=44 width=19) (actual time=0.034..0.231 rows=138 loops=1)
+              Buffers: shared hit=285
+              ->  Nested Loop Left Join  (cost=9.36..202.27 rows=44 width=16) (actual time=0.022..0.183 rows=138 loops=1)
+                    Buffers: shared hit=281
+                    ->  Bitmap Heap Scan on reports_booking  (cost=8.94..103.82 rows=22 width=16) (actual time=0.018..0.055 rows=69 loops=1)
+                          Recheck Cond: ((court_id = ANY ('{7,8}'::bigint[])) AND (start_date >= '2026-06-16'::date) AND (start_date <= '2026-06-16'::date))
+                          Filter: confirmed
+                          Heap Blocks: exact=69
+                          Buffers: shared hit=73
+                          ->  Bitmap Index Scan on booking_court_start_idx  (cost=0.00..8.94 rows=28 width=0) (actual time=0.010..0.010 rows=69 loops=1)
+                                Index Cond: ((court_id = ANY ('{7,8}'::bigint[])) AND (start_date >= '2026-06-16'::date) AND (start_date <= '2026-06-16'::date))
+                                Buffers: shared hit=4
+                    ->  Index Only Scan using reports_booking_tags_booking_id_tag_id_28903b39_uniq on reports_booking_tags  (cost=0.42..4.45 rows=2 width=16) (actual time=0.001..0.002 rows=2 loops=69)
+                          Index Cond: (booking_id = reports_booking.id)
+                          Heap Fetches: 0
+                          Buffers: shared hit=208
+              ->  Memoize  (cost=0.15..0.16 rows=1 width=19) (actual time=0.000..0.000 rows=1 loops=138)
+                    Cache Key: reports_booking_tags.tag_id
+                    Cache Mode: logical
+                    Hits: 136  Misses: 2  Evictions: 0  Overflows: 0  Memory Usage: 1kB
+                    Buffers: shared hit=4
+                    ->  Index Scan using reports_tag_pkey on reports_tag  (cost=0.14..0.15 rows=1 width=19) (actual time=0.005..0.005 rows=1 loops=2)
+                          Index Cond: (id = reports_booking_tags.tag_id)
+                          Buffers: shared hit=4
+Planning:
+  Buffers: shared hit=22
+Planning Time: 0.190 ms
+Execution Time: 0.297 ms
+```
+
+Each individual BEFORE statement is cheap because the suggested indexes exist; the defect is the
+**142 client round trips** (one per court and two per booking) versus **4** for the set-based service.
+Both AFTER statements use `booking_court_start_idx` for the date range and the composite unique index
+on `reports_booking_tags` for tags. The old hand-written multiplying-join query was removed: it was not
+a statement either service ever issued.
 
 ## Mutation spot-check
 
-Three deliberate breaks, each confirmed to fail a spec test, then reverted:
+Three deliberate breaks, each confirmed to fail a test, then reverted:
 
-1. Invert the naive payment filter (`if not payment.successful`) → sample collected `30.00` vs `200.00`.
-2. Drop the `successful` filter from the optimized `Sum` → sample collected `230.00` vs `200.00`.
-3. Remove `distinct=True` from the optimized booking `Count` → sample count `3` vs `1` (payment rows
-   duplicated the booking).
+1. Make `ensure_database()` raise when the database already exists → the pytest session aborted in
+   `conftest.pytest_sessionstart` with `RuntimeError: database already exists`.
+2. Invert the naive payment filter (`if not payment.successful`) → `test_spec_sample_confirmed_booking_count_1_collected_200`
+   and `test_spec_naive_equals_optimized` failed (30.00 vs 200.00).
+3. Point the `BEFORE-payments` selector at the booking query → `test_spec_benchmark_explains_real_orm_statements`
+   failed because the "real payment SQL" no longer contained `reports_payment`.
 
 ## Assumptions
 
 - "Confirmed booking" means `Booking.confirmed = True`; "collected" means `Payment.successful = True`.
   The sample (1 booking, 200 of 200 rial collected, 30 failed excluded) pins this reading.
+- The spec's "admin page" need is interpreted as the report service/query such a page would call.
+  AGENTS.md forbids building admin/frontend extras, so no Django admin UI or template was added.
 - Amounts use `DecimalField(14, 2)` (rial), never `float`. `USE_TZ=True`, `TIME_ZONE="UTC"`; the report
   filter uses `DateField` values, so no naive datetimes occur.
 - The date filter is inclusive at both ends (`[from, to]`). The initial boundary test contradicted its
   own fixture by expecting zero on a date where it had just created a confirmed booking; it was corrected
   to assert 1 on that boundary and 0 on a date with no booking. No assertion was weakened.
-- The naive SQL used for EXPLAIN ANALYZE is the multiplying single-join shape; the Python naive service
-  is the literal N+1 loop whose query count is measured separately (they are two faces of the same
-  problem: per-relation row explosion / per-row round trips).
+- EXPLAIN ANALYZE uses the literal SQL captured from both services. The earlier hand-written
+  multiplying-join query was deleted because it did not match what either service issues.
 
 ## Unfinished parts
 

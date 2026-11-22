@@ -7,7 +7,12 @@ import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
-from reports.benchmark import naive_report_sql, optimized_report_sql
+from reports.benchmark import (
+    benchmark,
+    capture_sql,
+    naive_real_sql,
+    optimized_real_sql,
+)
 from reports.models import Booking, Branch, Court, Payment, Tag
 from reports.services import naive_court_report, optimized_court_report
 
@@ -149,11 +154,32 @@ def test_spec_pagination_page_size_50(db) -> None:
 
 
 @pytest.mark.django_db
-def test_spec_explain_analyze_comparison(db) -> None:
-    _courts(5)
-    with connection.cursor() as cur:
-        for sql in (naive_report_sql(DATE_FROM, DATE_TO), optimized_report_sql(DATE_FROM, DATE_TO)):
-            cur.execute("EXPLAIN ANALYZE " + sql)
-            plan = "\n".join(row[0] for row in cur.fetchall())
-            assert "Planning Time:" in plan
-            assert "Execution Time:" in plan
+def test_spec_explain_analyze_comparison(sample) -> None:
+    results = benchmark(DATE_FROM, DATE_TO, page_size=2)
+    assert {result.label for result in results} == {
+        "BEFORE-bookings",
+        "BEFORE-payments",
+        "BEFORE-tags",
+        "AFTER-aggregates",
+        "AFTER-tags",
+    }
+    for result in results:
+        assert result.sql.strip().upper().startswith("SELECT")
+        assert "Planning Time:" in result.plan
+        assert "Execution Time:" in result.plan
+
+
+@pytest.mark.django_db
+def test_spec_benchmark_explains_real_orm_statements(sample) -> None:
+    """Every EXPLAINed statement was captured verbatim from a service call."""
+    naive_all = capture_sql(naive_court_report, DATE_FROM, DATE_TO, page_size=2)
+    naive_selected = naive_real_sql(DATE_FROM, DATE_TO, page_size=2)
+    assert set(naive_selected.values()) <= set(naive_all)
+    assert "reports_booking_tags" in naive_selected["BEFORE-tags"]
+    assert "reports_payment" in naive_selected["BEFORE-payments"]
+
+    optimized_all = capture_sql(optimized_court_report, DATE_FROM, DATE_TO, page_size=2)
+    optimized_selected = optimized_real_sql(DATE_FROM, DATE_TO, page_size=2)
+    assert set(optimized_selected.values()) <= set(optimized_all)
+    assert "reports_payment" in optimized_selected["AFTER-aggregates"]
+    assert "reports_booking_tags" in optimized_selected["AFTER-tags"]
