@@ -408,12 +408,15 @@ def test_spec_report_staleness_budget_is_bounded() -> None:
 
 def test_spec_capacity_model_sizing_arithmetic() -> None:
     compact = _compact(_section(_doc(), "## Capacity model"))
+    # Round 2 replaced the flawed 4 ms advisory-lock budget with the SET NX gate arithmetic.
     for equation in (
         "3000*0.25=750",
         "300*0.25=75",
-        "1/150=6.67",
-        "150*0.004=0.6",
-        "0.6/(1-0.6)*4=6",
+        "150*0.010=1.5",
+        "150*0.002=0.3",
+        "0.3/(1-0.3)*2=0.86",
+        "1/600=0.0017",
+        "150*0.010/6=0.25",
         "300*0.01=3",
         "750/50=15",
     ):

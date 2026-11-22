@@ -30,7 +30,7 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 | 7 | DONE | P2 legacy-vs-new proof | TODO |
 | 8 | DONE | P0 bug + P1 tests/observability | DONE (round 2) |
 | 9 | DONE | P0 test rewrite | DONE (round 2) |
-| 10 | DONE | P1 design fixes | TODO |
+| 10 | DONE | P1 design fixes | DONE (round 2) |
 
 ### Round 2 progress (chronological)
 
@@ -84,6 +84,12 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
   `ClassNotFound` (404) and the post-insert seam were added. Mutation check: drop lock → `assert 17 == 3`,
   flip capacity → `DID NOT RAISE ReservationConflict`, drop `atomic()` → `TransactionManagementError`,
   move hook outside `atomic()` → `assert 1 == 0`, drop error mapping → `assert 'DoesNotExist' == 'ClassNotFound'`.
+- T10 DONE. Orchestrator gate: `ruff format .` 6 unchanged, `ruff check .` All checks passed!,
+  `ruff format --check .` 6 already formatted, `pytest -q` 75 passed in 0.14s, `check_doc.py` OK;
+  `pytest --collect-only -q | tail -1` 75 tests collected. The README now states the unstable
+  `ρ = 150 × 0.010 = 1.5`, the Redis `SET NX` fast-fail gate, 1-2 s hot-cache TTL with single-flight
+  refresh, inline expiry with B's NEW request, late-payment controls, and the added ERD tables;
+  the checker enforces the new rules. All six findings reproduced; five structure mutations caught.
 
 ## Clean-clone verification (final)
 

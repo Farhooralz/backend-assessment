@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from round2_rules import check_round2
+
 REQUIRED_SECTIONS: tuple[str, ...] = (
     "## Assumptions",
     "## API boundary",
@@ -19,6 +21,7 @@ REQUIRED_SECTIONS: tuple[str, ...] = (
     "## Run and test commands",
     "## Unfinished parts",
     "## Spot-check record",
+    "## Round 2",
 )
 
 REQUIRED_TOKENS: tuple[str, ...] = (
@@ -57,21 +60,34 @@ REQUIRED_TOKENS: tuple[str, ...] = (
     "pip install -r requirements.txt",
     "python check_doc.py",
     "python -m pytest -q",
+    "inline expiry",
+    "cleanup only",
+    "set nx",
+    "fast-fail",
+    "1-2 ms",
+    "1-2 s",
+    "single-flight",
+    "stale-while-revalidate",
+    "non-hot",
+    "signature check",
+    "amount-vs-reservation",
+    "callback_event",
+    "settlement file",
+    "dedupe",
+    "still free",
+    "re-confirm",
+    "captured",
+    "never overlap",
+    "structure check",
+    "on conflict do nothing",
+    "postgresql 16",
+    "23p01",
 )
 
 PARTIAL_EXCLUSION_SQL = (
     r"EXCLUDE\s+USING\s+gist\s*\(\s*court_id\s+WITH\s+=,\s*"
     r"reserved_interval\s+WITH\s+&&\s*\)\s*WHERE\s+status\s+IN\s*"
     r"\(\s*'held'\s*,\s*'confirmed'\s*\)"
-)
-SIZING_EQUATIONS: tuple[str, ...] = (
-    "3000*0.25=750",
-    "300*0.25=75",
-    "1/150=6.67",
-    "150*0.004=0.6",
-    "0.6/(1-0.6)*4=6",
-    "300*0.01=3",
-    "750/50=15",
 )
 
 
@@ -166,10 +182,6 @@ def check_document(text: str) -> list[str]:
     if "primary" not in freshness or "timestamp" not in freshness:
         errors.append("missing primary-refresh alternative that bounds staleness")
 
-    capacity = _compact(_section(text, "## Capacity model"))
-    if not all(equation in capacity for equation in SIZING_EQUATIONS):
-        errors.append("missing sizing arithmetic (Little's Law, lock budget, pool and workers)")
-
     slo = _section(text, "## SLO")
     rows = [
         line
@@ -183,4 +195,7 @@ def check_document(text: str) -> list[str]:
         for token in ("250 ms", "reservation commit", "callback", "staleness")
     ):
         errors.append("at least four SLOs required (availability, commit, callbacks, staleness)")
+
+    # Round-2 rules: require "inline expiry", reject "4 ms critical section", state hot-court rho.
+    errors.extend(check_round2(text, erd=erd))
     return errors
