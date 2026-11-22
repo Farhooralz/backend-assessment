@@ -29,6 +29,15 @@ class CountingBarrier(threading.Barrier):
         return super().wait(timeout)
 
 
+def _backend_pid() -> int:
+    """Read the real PostgreSQL backend PID for the current thread's connection."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_backend_pid()")
+        row = cursor.fetchone()
+    assert row is not None
+    return int(row[0])
+
+
 class TestReservationConcurrency(TransactionTestCase):
     """TransactionTestCase is required: workers must commit in separate connections."""
 
@@ -48,15 +57,15 @@ class TestReservationConcurrency(TransactionTestCase):
         klass = GymClass.objects.create(name="Yoga", capacity=CAPACITY)
         barrier = CountingBarrier(WORKERS)
         results: list[int | str | None] = [None] * WORKERS
-        connection_ids: set[int] = set()
-        ids_lock = threading.Lock()
+        backend_pids: set[int] = set()
+        pids_lock = threading.Lock()
 
         def worker(index: int) -> None:
             connection.close()
             barrier.wait(timeout=60)
             connection.ensure_connection()
-            with ids_lock:
-                connection_ids.add(id(connection.connection))
+            with pids_lock:
+                backend_pids.add(_backend_pid())
             try:
                 results[index] = reserve(klass.id, user_id=index + 1, key=f"key-{index}")
             except ReservationConflict as exc:
@@ -68,7 +77,7 @@ class TestReservationConcurrency(TransactionTestCase):
         self._run_workers(worker, WORKERS)
 
         assert barrier.wait_count == WORKERS
-        assert len(connection_ids) == WORKERS
+        assert len(backend_pids) == WORKERS
         successes = [result for result in results if isinstance(result, int)]
         conflicts = [result for result in results if result == "conflict"]
         assert len(successes) == 3, results
@@ -100,19 +109,19 @@ class TestReservationConcurrency(TransactionTestCase):
     def test_spec_independent_connection_per_worker(self) -> None:
         """Each worker holds its own PostgreSQL connection, not a shared cursor."""
         barrier = threading.Barrier(3)
-        connection_ids: list[int] = []
+        backend_pids: list[int] = []
 
         def worker(_index: int) -> None:
             connection.close()
             barrier.wait(timeout=60)
             connection.ensure_connection()
-            connection_ids.append(id(connection.connection))
+            backend_pids.append(_backend_pid())
             connection.close()
 
         self._run_workers(worker, 3)
 
-        assert len(connection_ids) == 3
-        assert len(set(connection_ids)) == 3
+        assert len(backend_pids) == 3
+        assert len(set(backend_pids)) == 3
 
     def test_spec_shared_start_barrier(self) -> None:
         """No worker proceeds until all of them reached the same start point."""

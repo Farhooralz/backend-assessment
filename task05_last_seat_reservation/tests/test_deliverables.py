@@ -1,15 +1,18 @@
 """Deliverables: migration, real PostgreSQL, select_for_update and lock-order note."""
 
 import inspect
+from io import StringIO
 from pathlib import Path
 
 import pytest
 from django.conf import settings
+from django.core.management import call_command
 from django.db import connection
 from django.db.models import UniqueConstraint
 from django.test.utils import CaptureQueriesContext
 
 from reservations import services
+from reservations.db import ensure_database
 from reservations.models import GymClass, Reservation
 from reservations.services import reserve
 
@@ -69,6 +72,25 @@ def test_spec_no_in_process_lock() -> None:
     assert "threading.Lock" not in source
     assert "RLock" not in source
     assert "Semaphore" not in source
+
+
+def test_spec_ensure_database_is_idempotent() -> None:
+    """ensure_database() is safe to call again after the database already exists."""
+    ensure_database()
+    ensure_database()
+
+
+def test_spec_ensure_db_management_command() -> None:
+    """`manage.py ensure_db` makes the task database available before migrate."""
+    output = StringIO()
+    call_command("ensure_db", stdout=output)
+    assert "task05" in output.getvalue()
+
+
+def test_spec_conftest_uses_shared_ensure_database() -> None:
+    """The pytest fixture and the management command call the same helper."""
+    text = (ROOT / "conftest.py").read_text()
+    assert "ensure_database()" in text
 
 
 def test_spec_lock_order_explained_in_readme() -> None:
