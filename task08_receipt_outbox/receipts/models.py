@@ -29,6 +29,31 @@ class OutboxMessage(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
 
 
+class OutboxAttempt(models.Model):
+    """One durable record per dispatch attempt, including crashed in-flight ones."""
+
+    class Outcome(models.TextChoices):
+        IN_PROGRESS = "in_progress"
+        SENT = "sent"
+        DEFERRED = "deferred"
+        FAILED = "failed"
+
+    message = models.ForeignKey(
+        OutboxMessage, on_delete=models.CASCADE, related_name="attempts_history"
+    )
+    attempt_no = models.PositiveIntegerField()
+    started_at = models.DateTimeField(default=timezone.now)
+    outcome = models.CharField(max_length=20, choices=Outcome.choices, default=Outcome.IN_PROGRESS)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["message", "attempt_no"], name="receipts_one_row_per_attempt"
+            )
+        ]
+
+
 class FakeExternalMessage(models.Model):
     """Stands in for the external service's own durable, keyed message store."""
 

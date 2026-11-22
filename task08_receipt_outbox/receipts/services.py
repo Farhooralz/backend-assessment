@@ -6,11 +6,12 @@ from decimal import Decimal
 
 import redis
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 from kombu.exceptions import OperationalError
 
 from receipts import fake_service
-from receipts.models import OutboxMessage, Payment, Receipt
+from receipts.models import OutboxAttempt, OutboxMessage, Payment, Receipt
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,8 @@ def backoff_seconds(attempts: int) -> int:
     return 2 ** (attempts - 1)
 
 
-def _enqueue(message_id: int) -> None:
+def enqueue_dispatch(message_id: int) -> None:
+    """Publish one task; a broker failure leaves the committed row for the sweeper."""
     from receipts.tasks import dispatch_receipt
 
     try:
@@ -60,12 +62,17 @@ def record_payment(
             payload={"reference": reference, "amount_rial": rial},
             next_attempt_at=moment,
         )
-        transaction.on_commit(lambda: _enqueue(outbox.pk))
+        transaction.on_commit(lambda: enqueue_dispatch(outbox.pk))
     return payment
 
 
 def claim_due_messages(*, now: datetime | None = None) -> list[int]:
-    """Select due rows with skip_locked so two sweepers never take the same row."""
+    """Read due rows with skip_locked; the lock ends before the caller enqueues.
+
+    Two sweepers can therefore return the same id. That is harmless: the task
+    re-locks the row, checks the lease/backoff, and the external Fake keys on the
+    idempotency key, so at most one send and one receipt are created.
+    """
     moment = now or timezone.now()
     with transaction.atomic():
         return list(
@@ -83,7 +90,7 @@ def sweep_outbox(*, now: datetime | None = None) -> int:
     """Periodic recovery: enqueue every due row, including rows left by a crash."""
     ids = claim_due_messages(now=now)
     for message_id in ids:
-        _enqueue(message_id)
+        enqueue_dispatch(message_id)
     return len(ids)
 
 
@@ -99,70 +106,116 @@ def record_receipt(outbox: OutboxMessage, external_message_id: str) -> None:
         )
 
 
+def _next_attempt_no(outbox: OutboxMessage, attempts: int) -> int:
+    """Keep attempt numbers monotonic even when an operator resets the retry counter."""
+    highest = (
+        OutboxAttempt.objects.filter(message=outbox).aggregate(Max("attempt_no"))["attempt_no__max"]
+        or 0
+    )
+    return max(highest, attempts - 1) + 1
+
+
+def _relock_claim(message_id: int, attempts: int) -> tuple[OutboxMessage | None, str]:
+    """Re-lock a row and check that this worker still owns the claim."""
+    current = OutboxMessage.objects.select_for_update().get(pk=message_id)
+    if current.status == OutboxMessage.Status.IN_PROGRESS and current.attempts == attempts:
+        return current, current.status
+    return None, current.status
+
+
+def _finish_attempt(message_id: int, attempt_no: int, outcome: str, error: str = "") -> None:
+    """Record the final outcome of one attempt inside the caller's transaction."""
+    OutboxAttempt.objects.filter(message_id=message_id, attempt_no=attempt_no).update(
+        outcome=outcome, error=error
+    )
+
+
 def process_outbox_message(
     message_id: int,
     *,
     now: datetime | None = None,
     service: fake_service.FakeReceiptService | None = None,
 ) -> str:
-    """Dispatch one outbox row; the idempotency key makes repeated sends safe."""
+    """Dispatch one due outbox row; never let a stale worker write state."""
     moment = now or timezone.now()
     gateway = service or fake_service.FakeReceiptService()
     with transaction.atomic():
         outbox = OutboxMessage.objects.select_for_update().get(pk=message_id)
         if outbox.status in (OutboxMessage.Status.SENT, OutboxMessage.Status.FAILED):
             return outbox.status
-        leased = (
-            outbox.status == OutboxMessage.Status.IN_PROGRESS and outbox.next_attempt_at > moment
-        )
-        if leased:
-            return outbox.status  # another worker is dispatching this row
-        # A stale in_progress row is a crash recovery, not a brand-new attempt.
-        attempts = (
-            outbox.attempts
-            if outbox.status == OutboxMessage.Status.IN_PROGRESS
-            else (outbox.attempts + 1)
-        )
+        if outbox.next_attempt_at > moment:
+            # Future backoff for PENDING, live lease for IN_PROGRESS: no attempt consumed.
+            return outbox.status
+        attempts = outbox.attempts + 1
+        attempt_no = _next_attempt_no(outbox, attempts)
+        if attempts > MAX_ATTEMPTS:
+            reason = "worker crashed repeatedly"
+            outbox.status = OutboxMessage.Status.FAILED
+            outbox.last_error = reason
+            outbox.save(update_fields=["status", "last_error"])
+            OutboxAttempt.objects.create(
+                message=outbox,
+                attempt_no=attempt_no,
+                started_at=moment,
+                outcome=OutboxAttempt.Outcome.FAILED,
+                error=reason,
+            )
+            return OutboxMessage.Status.FAILED
         outbox.status = OutboxMessage.Status.IN_PROGRESS
         outbox.attempts = attempts
         outbox.next_attempt_at = moment + timedelta(seconds=LEASE_SECONDS)
         outbox.save(update_fields=["status", "attempts", "next_attempt_at"])
+        OutboxAttempt.objects.create(message=outbox, attempt_no=attempt_no, started_at=moment)
 
     try:
         result = gateway.send(outbox.idempotency_key, outbox.payload)
     except fake_service.ReceiptTimeoutError:
         result = gateway.lookup(outbox.idempotency_key)
         if result is None:
-            return _defer(outbox, attempts, moment, "temporary: response timed out")
+            return _defer(message_id, attempts, attempt_no, moment, "temporary: response timed out")
     except fake_service.PermanentReceiptError as exc:
-        return _fail(outbox, str(exc))
+        return _fail(message_id, attempts, attempt_no, str(exc))
     except fake_service.TemporaryReceiptError as exc:
-        return _defer(outbox, attempts, moment, f"temporary: {exc}")
+        return _defer(message_id, attempts, attempt_no, moment, f"temporary: {exc}")
 
-    record_receipt(outbox, result.external_message_id)
     with transaction.atomic():
-        outbox.status = OutboxMessage.Status.SENT
-        outbox.last_error = ""
-        outbox.save(update_fields=["status", "last_error"])
+        current, status = _relock_claim(message_id, attempts)
+        if current is None:
+            return status
+        record_receipt(current, result.external_message_id)
+        current.status = OutboxMessage.Status.SENT
+        current.last_error = ""
+        current.save(update_fields=["status", "last_error"])
+        _finish_attempt(message_id, attempt_no, OutboxAttempt.Outcome.SENT)
     return OutboxMessage.Status.SENT
 
 
-def _defer(outbox: OutboxMessage, attempts: int, now: datetime, error: str) -> str:
+def _defer(message_id: int, attempts: int, attempt_no: int, now: datetime, error: str) -> str:
     """Schedule another attempt, or stop after the fifth failure."""
     exhausted = attempts >= MAX_ATTEMPTS
     next_attempt = now if exhausted else now + timedelta(seconds=backoff_seconds(attempts))
+    outcome = OutboxAttempt.Outcome.FAILED if exhausted else OutboxAttempt.Outcome.DEFERRED
     with transaction.atomic():
-        outbox.status = OutboxMessage.Status.FAILED if exhausted else OutboxMessage.Status.PENDING
-        outbox.next_attempt_at = next_attempt
-        outbox.last_error = error
-        outbox.save(update_fields=["status", "next_attempt_at", "last_error"])
-    return outbox.status
+        current, status = _relock_claim(message_id, attempts)
+        if current is None:
+            return status
+        current.status = OutboxMessage.Status.FAILED if exhausted else OutboxMessage.Status.PENDING
+        current.next_attempt_at = next_attempt
+        current.last_error = error
+        current.save(update_fields=["status", "next_attempt_at", "last_error"])
+        _finish_attempt(message_id, attempt_no, outcome, error)
+    return current.status
 
 
-def _fail(outbox: OutboxMessage, error: str) -> str:
+def _fail(message_id: int, attempts: int, attempt_no: int, error: str) -> str:
     """Stop immediately for a permanent rejection."""
+    message = f"permanent: {error}"
     with transaction.atomic():
-        outbox.status = OutboxMessage.Status.FAILED
-        outbox.last_error = f"permanent: {error}"
-        outbox.save(update_fields=["status", "last_error"])
+        current, status = _relock_claim(message_id, attempts)
+        if current is None:
+            return status
+        current.status = OutboxMessage.Status.FAILED
+        current.last_error = message
+        current.save(update_fields=["status", "last_error"])
+        _finish_attempt(message_id, attempt_no, OutboxAttempt.Outcome.FAILED, message)
     return OutboxMessage.Status.FAILED

@@ -28,7 +28,7 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 | 5 | DONE | P1 tests | TODO |
 | 6 | DONE | P1 validation/logout/tests | TODO |
 | 7 | DONE | P2 legacy-vs-new proof | TODO |
-| 8 | DONE | P0 bug + P1 tests/observability | TODO |
+| 8 | DONE | P0 bug + P1 tests/observability | DONE (round 2) |
 | 9 | DONE | P0 test rewrite | DONE (round 2) |
 | 10 | DONE | P1 design fixes | TODO |
 
@@ -41,7 +41,16 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
   `test_spec_default_clock_is_timezone_now` fail with `TypeError: cancel() missing 1 required
   positional argument: 'now'` and `test_spec_cancelled_without_document_raises_inconsistent_state`
   fail with `RefundDocument.DoesNotExist`; the fixed file was restored and the gate re-run green.
-- Wave A (T8, T3) still in progress.
+- T8 DONE. Orchestrator gate: `ruff format .` 20 unchanged, `ruff check .` All checks passed!,
+  `ruff format --check .` 20 already formatted, `pytest -q` 47 passed in 5.07s;
+  `pytest --collect-only -q | tail -1` 47 tests collected. Hand-revert of `receipts/services.py`
+  made `test_spec_pending_row_with_future_next_attempt_is_not_processed_early` fail with
+  `assert OutboxMessage.Status.SENT == 'pending'`,
+  `test_spec_stale_worker_defer_cannot_overwrite_sent` fail with `assert 'pending' == 'sent'`, and
+  `test_spec_crash_reclaim_beyond_max_attempts_fails` fail with
+  `assert OutboxMessage.Status.SENT == 'failed'`; the fixed file was restored and the gate re-run green.
+  Findings 4, 6 and 8 were documented as "not reproduced as bugs" with evidence in the task README.
+- Wave A (T3) still in progress.
 
 ## Clean-clone verification (final)
 

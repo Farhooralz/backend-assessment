@@ -113,7 +113,7 @@ def test_spec_periodic_sweeper_only_claims_due_rows() -> None:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.timeout(10)
-def test_spec_select_for_update_skip_locked_claiming() -> None:
+def test_spec_skip_locked_skips_row_held_by_other_transaction() -> None:
     outbox = _create_pending("pay-locked")
     entered = threading.Event()
     release = threading.Event()
@@ -215,9 +215,8 @@ def test_spec_operator_retry_dispatches_failed_dispatch() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_spec_timeout_after_accept_gives_one_external_message_and_one_receipt(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_spec_timeout_after_accept_gives_one_external_message_and_one_receipt() -> None:
+    """The real Fake records the message, then times out; lookup must find it."""
     fake_service.set_fake_mode("accept_then_timeout")
     with monkeypatch_delay():
         services.record_payment(reference="pay-timeout", amount_rial=900, now=T0)
@@ -225,21 +224,11 @@ def test_spec_timeout_after_accept_gives_one_external_message_and_one_receipt(
     outbox = OutboxMessage.objects.get()
     assert outbox.status == "pending"
 
-    with monkeypatch.context() as patch:
-        patch.setattr(fake_service.FakeReceiptService, "lookup", lambda self, key: None)
-        services.process_outbox_message(outbox.pk, now=T0)
-
-    outbox.refresh_from_db()
-    assert outbox.status == "pending"
-    assert outbox.attempts == 1
-    assert FakeExternalMessage.objects.count() == 1
-    assert Receipt.objects.count() == 0
-
-    fake_service.set_fake_mode("ok")
-    services.sweep_outbox(now=T0 + timedelta(seconds=1))
+    assert services.process_outbox_message(outbox.pk, now=T0) == "sent"
 
     outbox.refresh_from_db()
     assert outbox.status == "sent"
+    assert outbox.attempts == 1
     assert FakeExternalMessage.objects.count() == 1
     assert Receipt.objects.count() == 1
 
@@ -375,11 +364,14 @@ def test_spec_real_migration_creates_tables() -> None:
     assert "receipts" not in settings.MIGRATION_MODULES
     assert ("receipts", "0001_initial") in loader.disk_migrations
     assert ("receipts", "0001_initial") in loader.applied_migrations
+    assert ("receipts", "0002_outboxattempt") in loader.disk_migrations
+    assert ("receipts", "0002_outboxattempt") in loader.applied_migrations
     for table in (
         "receipts_payment",
         "receipts_outboxmessage",
         "receipts_fakeexternalmessage",
         "receipts_receipt",
+        "receipts_outboxattempt",
     ):
         assert table in connection.introspection.table_names()
 
@@ -439,7 +431,8 @@ def test_spec_slow_dispatch_does_not_consume_attempts() -> None:
 
 
 @pytest.mark.django_db(transaction=True)
-def test_spec_reclaim_does_not_increment_attempts() -> None:
+def test_spec_reclaim_increments_attempts_after_crash() -> None:
+    """Round 2: a crashed worker's re-claim is a real attempt (was deliberately changed)."""
     from receipts.services import LEASE_SECONDS
 
     outbox = _create_pending("pay-reclaim")
@@ -455,7 +448,7 @@ def test_spec_reclaim_does_not_increment_attempts() -> None:
 
     outbox.refresh_from_db()
     assert outbox.status == "sent"
-    assert outbox.attempts == 1
+    assert outbox.attempts == 2
     assert outbox.next_attempt_at == T0 + timedelta(seconds=LEASE_SECONDS)
 
 
