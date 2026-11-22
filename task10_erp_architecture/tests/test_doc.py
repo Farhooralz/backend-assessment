@@ -43,6 +43,22 @@ def _mermaid_blocks(text: str) -> list[str]:
     return re.findall(r"```mermaid\s*\n(.*?)```", text, flags=re.DOTALL)
 
 
+def _diagram(text: str, kind: str) -> str:
+    """Return the first Mermaid diagram of the requested kind."""
+    return next((block for block in _mermaid_blocks(text) if kind in block), "")
+
+
+def _entity(erd: str, name: str) -> str:
+    """Return the attribute body of one Mermaid ERD entity."""
+    match = re.search(rf"\b{name}\s*\{{(.*?)\}}", erd, flags=re.DOTALL)
+    return match.group(1) if match else ""
+
+
+def _compact(text: str) -> str:
+    """Normalize multiplication signs and whitespace to match sizing equations."""
+    return re.sub(r"\s+", "", text.replace("×", "*").replace("·", "*"))
+
+
 def _checker():
     path = ROOT / "check_doc.py"
     if not path.exists():
@@ -311,3 +327,159 @@ def test_spec_checker_cli_exits_zero() -> None:
     )
     assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
     assert "OK:" in result.stdout
+
+
+def test_spec_partial_exclusion_constraint_with_btree_gist() -> None:
+    compact = _compact(_doc())
+    assert re.search(
+        r"EXCLUDEUSINGgist\(court_idWITH=,reserved_intervalWITH&&\)"
+        r"WHEREstatusIN\('held','confirmed'\)",
+        compact,
+        flags=re.IGNORECASE,
+    ), "exclusion constraint must be partial and guard reserved_interval"
+    assert re.search(r"CREATEEXTENSION(?:IFNOTEXISTS)?btree_gist", compact, flags=re.IGNORECASE), (
+        "btree_gist extension must be enabled for the = operator"
+    )
+
+
+def test_spec_unpartial_constraint_would_break_second_customer() -> None:
+    text = _section(_doc(), "## ERD").lower()
+    assert "without the where clause" in text
+    assert "expired holds" in text
+    assert "b takes the interval" in text
+    assert "impossible" in text
+
+
+def test_spec_erd_reserved_interval_on_reservation_only() -> None:
+    erd = _diagram(_doc(), "erDiagram")
+    assert "reserved_interval" in _entity(erd, "RESERVATION"), (
+        "reserved_interval must be an attribute of RESERVATION"
+    )
+    assert "tstzrange" in _entity(erd, "RESERVATION")
+    assert "reserved_interval" not in _entity(erd, "COURT"), "COURT must not own reserved_interval"
+
+
+def test_spec_erd_unique_provider_reference_on_payment_only() -> None:
+    erd = _diagram(_doc(), "erDiagram")
+    assert "provider_reference" not in _entity(erd, "RESERVATION")
+    payment = _entity(erd, "PAYMENT").lower()
+    assert "text provider_reference" in payment
+    assert "uk" in payment
+
+
+def test_spec_erd_one_to_many_payment_attempts_callbacks() -> None:
+    erd = _diagram(_doc(), "erDiagram")
+    for child in ("PAYMENT", "PAYMENT_ATTEMPT", "CALLBACK_EVENT"):
+        assert re.search(rf"RESERVATION\s+\|\|--o\{{\s+{child}\b", erd), (
+            f"RESERVATION to {child} must be 1:N"
+        )
+    assert not re.search(r"RESERVATION\s+\|\|--o\|\s+PAYMENT\b", erd), (
+        "payments are not 1:0..1: retries and late payments need 1:N"
+    )
+    text = _section(_doc(), "## ERD").lower()
+    assert "retries" in text and "late payment" in text
+
+
+def test_spec_sequence_notes_cover_status_money_message_reconciliation() -> None:
+    seq = _diagram(_doc(), "sequenceDiagram")
+    complete = [
+        note
+        for note in re.findall(r"Note over[^\n]*", seq)
+        if all(field in note.lower() for field in ("status", "money", "message", "reconcil"))
+    ]
+    assert len(complete) >= 7, f"only {len(complete)} complete late-payment notes"
+    for token in ("b takes the interval", "late payment", "repeated callback", "confirmed"):
+        assert token in seq.lower(), f"sequence diagram missing step: {token}"
+
+
+def test_spec_report_staleness_budget_is_bounded() -> None:
+    text = (
+        _section(_doc(), "## Capacity model")
+        + _section(_doc(), "## SLO")
+        + _section(_doc(), "## Decisions and limitations")
+    ).lower()
+    assert "exceed 5 minutes" in text or "exceeds 5 minutes" in text, (
+        "must state that a replica-lagged materialized view can exceed 5 minutes"
+    )
+    assert "replica lag" in text and "refresh" in text
+    assert "2min+3min=5min" in _compact(text), "staleness budget arithmetic is missing"
+    assert "primary" in text and "timestamp" in text
+
+
+def test_spec_capacity_model_sizing_arithmetic() -> None:
+    compact = _compact(_section(_doc(), "## Capacity model"))
+    for equation in (
+        "3000*0.25=750",
+        "300*0.25=75",
+        "1/150=6.67",
+        "150*0.004=0.6",
+        "0.6/(1-0.6)*4=6",
+        "300*0.01=3",
+        "750/50=15",
+    ):
+        assert equation in compact, f"capacity model missing arithmetic: {equation}"
+
+
+def test_spec_multiple_slo_targets() -> None:
+    section = _section(_doc(), "## SLO")
+    rows = [
+        line
+        for line in section.splitlines()
+        if line.startswith("|")
+        and not re.match(r"\|\s*-", line)
+        and "objective" not in line.lower()
+    ]
+    assert len(rows) >= 4, f"expected at least four SLOs, found {len(rows)}"
+    for token in ("250 ms", "reservation commit", "callback", "staleness"):
+        assert token in section.lower(), f"SLO section missing objective: {token}"
+    assert re.search(r"(?:≤|<=)\s*5\s*min", section) or "5 minutes" in section
+
+
+def test_spec_checker_detects_partial_constraint_regression() -> None:
+    checker = _checker()
+    damaged = _doc().replace(" WHERE status IN ('held','confirmed')", "")
+    errors = checker.check_document(damaged)
+    assert any("partial" in error for error in errors), errors
+
+
+def test_spec_checker_detects_btree_gist_regression() -> None:
+    checker = _checker()
+    damaged = _doc().replace("btree_gist", "plain_gist")
+    errors = checker.check_document(damaged)
+    assert any("btree_gist" in error for error in errors), errors
+
+
+def test_spec_checker_detects_erd_regressions() -> None:
+    checker = _checker()
+    damaged = _doc().replace("RESERVATION ||--o{ PAYMENT", "RESERVATION ||--o| PAYMENT")
+    errors = checker.check_document(damaged)
+    assert any("1:N" in error for error in errors), errors
+    damaged = re.sub(
+        r"(RESERVATION \{\n.*?)tstzrange reserved_interval",
+        r"\1tstzrange wrong_name",
+        _doc(),
+        flags=re.DOTALL,
+    )
+    errors = checker.check_document(damaged)
+    assert any("reserved_interval" in error and "RESERVATION" in error for error in errors)
+
+
+def test_spec_checker_detects_staleness_and_sizing_regressions() -> None:
+    checker = _checker()
+    damaged = "\n".join(
+        line for line in _doc().splitlines() if "2 min + worst-case replica lag" not in line
+    )
+    errors = checker.check_document(damaged)
+    assert any("staleness budget" in error for error in errors), errors
+    damaged = "\n".join(line for line in _doc().splitlines() if "3000 × 0.25 = 750" not in line)
+    errors = checker.check_document(damaged)
+    assert any("sizing arithmetic" in error for error in errors), errors
+
+
+def test_spec_checker_detects_single_slo_regression() -> None:
+    checker = _checker()
+    damaged = "\n".join(
+        line for line in _doc().splitlines() if "callback processing" not in line.lower()
+    )
+    errors = checker.check_document(damaged)
+    assert any("SLO" in error for error in errors), errors

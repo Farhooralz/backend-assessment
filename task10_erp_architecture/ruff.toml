@@ -1,4 +1,4 @@
 extend = "../pyproject.toml"
 
 [lint.isort]
-known-first-party = ["check_doc"]
+known-first-party = ["check_doc", "doc_rules"]

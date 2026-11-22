@@ -3,83 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import re
 from pathlib import Path
 
-REQUIRED_SECTIONS: tuple[str, ...] = (
-    "## Assumptions",
-    "## API boundary",
-    "## ERD",
-    "## Sequence diagram",
-    "## Late-payment walkthrough",
-    "## Capacity model",
-    "## SLO",
-    "## Indicators and alerts",
-    "## Recovery plan",
-    "## Load test plan",
-    "## Decisions and limitations",
-    "## Run and test commands",
-    "## Unfinished parts",
-    "## Spot-check record",
-)
-
-REQUIRED_TOKENS: tuple[str, ...] = (
-    "80 branches",
-    "court reservation",
-    "online payment",
-    "financial reporting",
-    "300",
-    "3000",
-    "150",
-    "10 minute",
-    "5 minute",
-    "p95",
-    "250 ms",
-    "tstzrange",
-    "exclude",
-    "idempotent",
-    "provider reference",
-    "refund",
-    "reconciliation entry",
-    "branch manager",
-    "central finance",
-    "aggregate",
-    "redis",
-    "ttl",
-    "invalidat",
-    "per-court",
-    "serializ",
-    "hot court",
-    "read replica",
-    "decision 1",
-    "decision 2",
-    "cost",
-    "limitation",
-    "implementation is not required",
-    "pip install -r requirements.txt",
-    "python check_doc.py",
-    "python -m pytest -q",
-)
-
-
-def check_document(text: str) -> list[str]:
-    """Return every unmet spec requirement so CI can report them all at once."""
-    errors: list[str] = []
-    headings = {line.strip() for line in text.splitlines() if line.startswith("## ")}
-    for heading in REQUIRED_SECTIONS:
-        if heading not in headings:
-            errors.append(f"missing section: {heading}")
-
-    blocks = re.findall(r"```mermaid\s*\n(.*?)```", text, flags=re.DOTALL)
-    for diagram, marker in (("erDiagram", "erDiagram"), ("sequenceDiagram", "sequenceDiagram")):
-        if not any(diagram in block for block in blocks):
-            errors.append(f"missing Mermaid {marker}")
-
-    lowered = text.lower()
-    for token in REQUIRED_TOKENS:
-        if token not in lowered:
-            errors.append(f"missing required content: {token}")
-    return errors
+from doc_rules import check_document
 
 
 def main() -> int:
