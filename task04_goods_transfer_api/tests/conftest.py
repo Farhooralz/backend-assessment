@@ -52,6 +52,11 @@ def employee(branch_b, make_user):
 
 
 @pytest.fixture
+def second_employee(branch_b, make_user):
+    return make_user("second_employee", branch_b, "employee")
+
+
+@pytest.fixture
 def manager(branch_a, make_user):
     return make_user("manager", branch_a, "source_manager")
 

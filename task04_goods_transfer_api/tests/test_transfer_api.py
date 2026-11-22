@@ -13,6 +13,45 @@ pytestmark = pytest.mark.django_db
 
 LIST_URL = "/api/transfers/"
 
+ROLE_MATRIX_CASES = [
+    ("employee", "list", 200),
+    ("employee", "create", 201),
+    ("employee", "retrieve", 200),
+    ("employee", "submit", 200),
+    ("employee", "approve", 403),
+    ("employee", "reject", 403),
+    ("manager", "list", 200),
+    ("manager", "create", 403),
+    ("manager", "retrieve", 200),
+    ("manager", "submit", 403),
+    ("manager", "approve", 200),
+    ("manager", "reject", 200),
+    ("other_employee", "list", 200),
+    ("other_employee", "create", 403),
+    ("other_employee", "retrieve", 404),
+    ("other_employee", "submit", 404),
+    ("other_employee", "approve", 404),
+    ("other_employee", "reject", 404),
+    ("other_manager", "list", 200),
+    ("other_manager", "create", 403),
+    ("other_manager", "retrieve", 404),
+    ("other_manager", "submit", 404),
+    ("other_manager", "approve", 404),
+    ("other_manager", "reject", 404),
+    ("anonymous", "list", 401),
+    ("anonymous", "create", 401),
+    ("anonymous", "retrieve", 401),
+    ("anonymous", "submit", 401),
+    ("anonymous", "approve", 401),
+    ("anonymous", "reject", 401),
+    ("no_profile_user", "list", 403),
+    ("no_profile_user", "create", 403),
+    ("no_profile_user", "retrieve", 403),
+    ("no_profile_user", "submit", 403),
+    ("no_profile_user", "approve", 403),
+    ("no_profile_user", "reject", 403),
+]
+
 
 def detail_url(pk: int) -> str:
     return f"/api/transfers/{pk}/"
@@ -297,41 +336,59 @@ def test_spec_pagination_with_stable_ordering(api_client, employee, branch_a, br
     assert api_client.get(LIST_URL, {"page": 4, "page_size": 2}).status_code == 404
 
 
-@pytest.mark.parametrize(
-    ("role", "action", "expected"),
-    [
-        ("employee", "list", 200),
-        ("employee", "create", 201),
-        ("employee", "retrieve", 200),
-        ("employee", "submit", 200),
-        ("employee", "approve", 403),
-        ("employee", "reject", 403),
-        ("manager", "list", 200),
-        ("manager", "create", 403),
-        ("manager", "retrieve", 200),
-        ("manager", "submit", 403),
-        ("manager", "approve", 200),
-        ("manager", "reject", 200),
-        ("other_employee", "list", 200),
-        ("other_employee", "create", 403),
-        ("other_employee", "retrieve", 404),
-        ("other_employee", "submit", 404),
-        ("other_employee", "approve", 404),
-        ("other_employee", "reject", 404),
-        ("other_manager", "list", 200),
-        ("other_manager", "create", 403),
-        ("other_manager", "retrieve", 404),
-        ("other_manager", "submit", 404),
-        ("other_manager", "approve", 404),
-        ("other_manager", "reject", 404),
-        ("anonymous", "list", 401),
-        ("anonymous", "create", 401),
-        ("anonymous", "retrieve", 401),
-        ("anonymous", "submit", 401),
-        ("anonymous", "approve", 401),
-        ("anonymous", "reject", 401),
-    ],
-)
+def test_spec_pagination_with_identical_created_at_stable_order(
+    api_client, employee, branch_a, branch_b
+):
+    api_client.force_login(employee)
+    created_ids = [post_create(api_client, branch_a, branch_b).data["id"] for _ in range(5)]
+    stamp = timezone.now()
+    TransferRequest.objects.filter(pk__in=created_ids).update(created_at=stamp)
+    expected = sorted(created_ids, reverse=True)
+
+    seen = []
+    for page in (1, 2, 3):
+        response = api_client.get(LIST_URL, {"page": page, "page_size": 2})
+        assert response.status_code == 200
+        assert response.data["count"] == 5
+        seen.extend(row["id"] for row in response.data["results"])
+    assert seen == expected
+    assert len(set(seen)) == 5
+
+
+def test_spec_second_employee_of_same_destination_cannot_submit(
+    api_client, employee, second_employee, draft
+):
+    assert employee.staff.branch_id == second_employee.staff.branch_id
+    api_client.force_login(second_employee)
+    response = api_client.post(action_url(draft.pk, "submit"), {}, format="json")
+    assert response.status_code == 403, response.data
+    draft.refresh_from_db()
+    assert draft.status == "draft"
+
+
+def test_spec_employee_creating_for_other_destination_returns_403(
+    api_client, employee, branch_a, branch_c
+):
+    api_client.force_login(employee)
+    response = post_create(api_client, branch_a, branch_c)
+    assert response.status_code == 403, response.data
+    assert TransferRequest.objects.count() == 0
+
+
+def test_spec_deliverable_role_matrix_counts_36_cases():
+    """The README's 6 actors x 6 actions claim must match the behavioural matrix."""
+    assert len(ROLE_MATRIX_CASES) == 36
+    assert {case[0] for case in ROLE_MATRIX_CASES} == {
+        "employee",
+        "manager",
+        "other_employee",
+        "other_manager",
+        "no_profile_user",
+        "anonymous",
+    }
+
+
+@pytest.mark.parametrize(("role", "action", "expected"), ROLE_MATRIX_CASES)
 def test_spec_role_matrix(
     request,
     api_client,
@@ -352,6 +409,7 @@ def test_spec_role_matrix(
         "manager": manager,
         "other_employee": other_employee,
         "other_manager": other_manager,
+        "no_profile_user": no_profile_user,
         "anonymous": None,
     }
     actor = actors[role]
@@ -377,11 +435,6 @@ def test_spec_role_matrix(
     else:
         response = api_client.post(action_url(target.pk, action), payload, format="json")
     assert response.status_code == expected, (role, action, response.status_code, response.data)
-
-
-def test_spec_no_profile_user_is_forbidden(api_client, no_profile_user):
-    api_client.force_login(no_profile_user)
-    assert api_client.get(LIST_URL).status_code == 403
 
 
 def test_spec_state_machine_rejects_invalid_transitions(api_client, employee, manager, submitted):

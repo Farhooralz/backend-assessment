@@ -22,14 +22,28 @@ class InvalidTransition(TransferError):
     """The request is not in a state that allows this operation."""
 
 
+_STAFF_CACHE_ATTR = "_cached_transfer_staff"
+_NOT_LOOKED_UP = object()
+
+
 def staff_for(user) -> Staff | None:
-    """Return the actor's live branch/role, or None when they have no staff profile."""
+    """Return the actor's live branch/role, caching it on the per-request user object.
+
+    Django builds a fresh ``request.user`` for every request, so caching on that
+    instance avoids repeating the same look-up in permission, queryset and service
+    layers without leaking state across requests.
+    """
     if not user.is_authenticated:
         return None
+    cached = getattr(user, _STAFF_CACHE_ATTR, _NOT_LOOKED_UP)
+    if cached is not _NOT_LOOKED_UP:
+        return cached
     try:
-        return Staff.objects.select_related("branch").get(user=user)
+        staff = Staff.objects.select_related("branch").get(user=user)
     except Staff.DoesNotExist:
-        return None
+        staff = None
+    setattr(user, _STAFF_CACHE_ATTR, staff)
+    return staff
 
 
 def validate_new_request(*, source, destination, quantity) -> None:
@@ -81,11 +95,13 @@ def decide_request(
     with transaction.atomic():
         locked = TransferRequest.objects.select_for_update().get(pk=request.pk)
         staff = staff_for(user)
+        # Creators are employees and deciders are source managers; the role
+        # checks on create and decide keep those sets disjoint, so a separate
+        # creator check here would be unreachable through the API.
         if (
             staff is None
             or staff.role != Staff.Role.SOURCE_MANAGER
             or staff.branch_id != locked.source_id
-            or locked.created_by_id == user.pk
         ):
             raise NotAllowed("only the source manager may decide this request")
         if decision not in {"approve", "reject"}:

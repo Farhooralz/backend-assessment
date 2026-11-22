@@ -3,12 +3,26 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# A fixed development-only key; a real deployment supplies DJANGO_SECRET_KEY.
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "task04-dev-only-insecure-key")
+
+def _required_secret(name: str) -> str:
+    """Fail closed: a missing key must stop startup, never silently weaken signing."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise ImproperlyConfigured(f"{name} must be set in the environment")
+    return value
+
+
+SECRET_KEY = _required_secret("DJANGO_SECRET_KEY")
 DEBUG = False
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if host.strip()
+]
 
 INSTALLED_APPS = [
     "django.contrib.auth",

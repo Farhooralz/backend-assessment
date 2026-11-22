@@ -24,7 +24,7 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 | 1 | DONE | none, frozen | DONE (fuzz-checked externally) |
 | 2 | DONE | none | DONE |
 | 3 | DONE | P0 bug + tests + seed + EXPLAIN | DONE (round 2) |
-| 4 | DONE | P1 tests/README/settings | TODO |
+| 4 | DONE | P1 tests/README/settings | DONE (round 2) |
 | 5 | DONE | P1 tests | TODO |
 | 6 | DONE | P1 validation/logout/tests | DONE (round 2) |
 | 7 | DONE | P2 legacy-vs-new proof | TODO |
@@ -69,6 +69,13 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
   handling and env/secret settings were fixed. Mutation check: skip logout save →
   `assert None is not None`, drop string check → `assert 401 == 400`, flip limiter `>=` to `>` →
   `assert 200 == 429`.
+- T4 DONE. Orchestrator gate: `ruff format .` 28 unchanged, `ruff check .` All checks passed!,
+  `ruff format --check .` 28 already formatted, `pytest -q` 73 passed in 32.84s;
+  `pytest --collect-only -q | tail -1` 73 tests collected and the role matrix collects
+  `36/73 tests collected (37 deselected)`. The two requested authorization tests already passed, so
+  they are documented as "not reproduced" and kept as guards. Mutation check: drop `-id` →
+  `assert [2, 1, 3, 4, 5] == [5, 4, 3, 2, 1]`; drop creator check → `assert 200 == 403`; drop
+  destination check → `assert 201 == 403`; skip decision-maker write → `assert None == 2`.
 
 ## Clean-clone verification (final)
 
