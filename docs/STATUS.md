@@ -1,19 +1,19 @@
 # Task status
 
-Last updated: 2026-11-22 — final.
+Last updated: 2026-11-22 — wave 2 started.
 
-Infrastructure note: `docker compose up -d` fails with "permission denied while trying to connect to the docker API"; no local PostgreSQL/Redis binaries are installed and neither port is reachable. Per AGENTS.md, tasks needing PostgreSQL/Redis are marked `BLOCKED: no postgres` and no subagent was launched for them.
+Infrastructure note: `docker compose up -d` failed with "permission denied". The no-Docker fallback was started with `PYTHONPATH=/tmp/pgserver312:/tmp/redislite39 scripts/local_infra.sh start` (only Python 3.14 is installed, so the cp312/cp39 wheels were supplied via `PYTHONPATH`). `scripts/local_infra.sh status` reports PostgreSQL accepting connections and Redis up; a real `psycopg` query returned "PostgreSQL 16.2" and `redis.ping()` returned `True`. `.env` was written by the script. Do not print `.env` values.
 
 | Task | Folder | Status | Notes |
 | --- | --- | --- | --- |
 | 1 | `task01_stream_merge` | DONE | Frozen; 36 tests pass; clean-clone gate green. |
 | 2 | `task02_pricing_engine` | DONE | 26 tests pass; coverage 100%; clean-clone gate green. |
-| 3 | `task03_court_report` | BLOCKED: no postgres | Wave 2; PostgreSQL unavailable. |
-| 4 | `task04_goods_transfer_api` | BLOCKED: no postgres | Wave 2; PostgreSQL unavailable. |
-| 5 | `task05_last_seat_reservation` | BLOCKED: no postgres | Wave 3; PostgreSQL + Redis unavailable. |
-| 6 | `task06_jwt_branch_access` | BLOCKED: no postgres | Wave 2; PostgreSQL + Redis unavailable. |
-| 7 | `task07_debtors_refactor` | BLOCKED: no postgres | Wave 2; PostgreSQL unavailable. |
-| 8 | `task08_receipt_outbox` | BLOCKED: no postgres | Wave 3; PostgreSQL + Redis unavailable. |
+| 3 | `task03_court_report` | DONE | 15 tests pass on PostgreSQL; 4 queries for 50 courts; EXPLAIN ANALYZE recorded; gate re-run by orchestrator. |
+| 4 | `task04_goods_transfer_api` | IN_PROGRESS | Wave 2; PostgreSQL up. |
+| 5 | `task05_last_seat_reservation` | TODO | Wave 3; PostgreSQL + Redis up. |
+| 6 | `task06_jwt_branch_access` | IN_PROGRESS | Wave 2; PostgreSQL + Redis up. |
+| 7 | `task07_debtors_refactor` | IN_PROGRESS | Wave 2; PostgreSQL up. |
+| 8 | `task08_receipt_outbox` | TODO | Wave 3; PostgreSQL + Redis up. |
 | 9 | `task09_cancellation_tests` | DONE | 26 tests pass; coverage 100%; mutation checker caught all 3 defects; clean-clone gate green. |
 | 10 | `task10_erp_architecture` | DONE | 39 doc tests pass; `check_doc.py` passes; clean-clone gate green. |
 
