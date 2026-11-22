@@ -1,9 +1,8 @@
 # Task status
 
-Last updated: 2026-11-22 - ROUND 2 IN PROGRESS. Round 1 was code-complete, but an external review found
-2 real bugs (task03 untagged-tag crash, task08 backoff bypass), 1 design flaw (task10 hot-court lock math)
-and several tests that pass for the wrong reason (task09 atomicity, task05 rollback, task03 query counts).
-Round-1 "DONE" results are NOT final. See `docs/ROUND2_BRIEF.md`.
+Last updated: 2026-11-22 - ROUND 2 COMPLETE. All ten tasks were re-fixed, re-gated, committed and pushed
+after the external review described in `docs/ROUND2_BRIEF.md`. Round-1 "DONE" results were superseded by
+the Round-2 entries below.
 
 Infrastructure note: `docker compose up -d` failed with "permission denied". The no-Docker fallback `scripts/local_infra.sh` is now committed and was verified from a fresh clone: it bootstrapped its own PostgreSQL 16.2 (unix socket) and Redis 6.2, wrote the git-ignored `.env`, and a real `psycopg` query plus `redis.ping()` both succeeded. No `.env` values were printed or committed. Python 3.12.16 (uv-managed) was used for every gate; no Python 3.14 result is claimed.
 
@@ -27,7 +26,7 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 | 4 | DONE | P1 tests/README/settings | DONE (round 2) |
 | 5 | DONE | P1 tests | DONE (round 2) |
 | 6 | DONE | P1 validation/logout/tests | DONE (round 2) |
-| 7 | DONE | P2 legacy-vs-new proof | TODO |
+| 7 | DONE | P2 legacy-vs-new proof | DONE (round 2) |
 | 8 | DONE | P0 bug + P1 tests/observability | DONE (round 2) |
 | 9 | DONE | P0 test rewrite | DONE (round 2) |
 | 10 | DONE | P1 design fixes | DONE (round 2) |
@@ -90,6 +89,16 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
   `ρ = 150 × 0.010 = 1.5`, the Redis `SET NX` fast-fail gate, 1-2 s hot-cache TTL with single-flight
   refresh, inline expiry with B's NEW request, late-payment controls, and the added ERD tables;
   the checker enforces the new rules. All six findings reproduced; five structure mutations caught.
+- T7 DONE. Orchestrator gate: `ruff format .` 18 unchanged, `ruff check .` All checks passed!,
+  `ruff format --check .` 18 already formatted, `pytest -q` 28 passed, 11 xfailed in 0.43s;
+  `pytest --collect-only -q | tail -1` 39 tests collected. Orchestrator red check:
+  `pytest -q --runxfail -k 'legacy and defect'` → 11 failed, 28 deselected; `-k services` →
+  19 passed, 20 deselected. Happy-path cases pass on both implementations; every `test_spec_defect_*`
+  is strict-xfail on legacy and green on services. Four business mutations caught.
+- Wave C root files updated: root `README.md` regenerated from real Round-2 gate runs;
+  `docs/PLAN.md` and `docs/ENGINEERING_PLAN.md` gained Round 2 notes and dropped stale CI/deploy/frontend/ADR
+  claims; `.opencode/commands/review.md` and `verify.md` gained rules 10-16 as checklist items.
+  All ten tasks are now DONE for Round 2.
 
 ## Clean-clone verification (final)
 

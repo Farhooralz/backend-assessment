@@ -1,6 +1,10 @@
 # Backend Assessment (Python / Django)
 
-Ten independent mini-projects. Requirements: [`docs/TEST_SPEC.md`](docs/TEST_SPEC.md). Working rules: [`AGENTS.md`](AGENTS.md). Live progress: [`docs/STATUS.md`](docs/STATUS.md). Plan/tracker: [`docs/PLAN.md`](docs/PLAN.md).
+Ten independent mini-projects. Requirements: [`docs/TEST_SPEC.md`](docs/TEST_SPEC.md). Working rules: [`AGENTS.md`](AGENTS.md). Live progress: [`docs/STATUS.md`](docs/STATUS.md). Original plan: [`docs/PLAN.md`](docs/PLAN.md).
+
+## Round 2
+
+Round 2 followed [`docs/ROUND2_BRIEF.md`](docs/ROUND2_BRIEF.md): every reproduced finding was written as a red test first, fixed, mutation-checked with business-logic mutations, and re-gated by the orchestrator. Task 1 stayed frozen. Findings that did not reproduce are documented as such in the relevant task README, with evidence.
 
 ## Reproducible setup (verified)
 
@@ -9,7 +13,7 @@ Target Python is **3.12+**; all gates below were run on Python 3.12.16. Each tas
 Infrastructure for tasks 3–9 is PostgreSQL 16 + Redis. Choose one option:
 
 ```bash
-# Option A — Docker
+# Option A — Docker (if your environment permits it)
 cp -n .env.example .env && docker compose up -d
 
 # Option B — no Docker / no root (the committed fallback script writes .env itself)
@@ -20,40 +24,40 @@ Load the env before any task command: `set -a; . ../.env; set +a` (run from insi
 
 Every task's test command is the same quality gate: `ruff format . && ruff check . && ruff format --check . && pytest -q`.
 
-| # | Folder | Topic | Status | Run command | Test command |
+| # | Folder | Topic | Status (Round 2) | Run command | Test command |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `task01_stream_merge` | Lazy k-way merge of event streams | DONE | `cd task01_stream_merge && .venv/bin/python measure_memory.py` | `cd task01_stream_merge && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 2 | `task02_pricing_engine` | Pricing engine (OOP/SOLID) | DONE | `cd task02_pricing_engine && .venv/bin/python -c "from decimal import Decimal as D; from pricing import QuoteEngine, QuoteContext, HourMultiplier, PercentDiscount, FixedCredit; print(QuoteEngine([HourMultiplier(D('1.5')), PercentDiscount(D('0.10')), FixedCredit(D('200'))]).quote(D('1000'), QuoteContext(10)))"` | `cd task02_pricing_engine && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 3 | `task03_court_report` | Financial report per court (ORM/PostgreSQL) | DONE | `cd task03_court_report && set -a; . ../.env; set +a; DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django ensure_db && DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django migrate --noinput` | `cd task03_court_report && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 4 | `task04_goods_transfer_api` | Goods transfer API (DRF) | DONE | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py runserver` | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 5 | `task05_last_seat_reservation` | Last-seat reservation (concurrency) | DONE | `cd task05_last_seat_reservation && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate` | `cd task05_last_seat_reservation && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 6 | `task06_jwt_branch_access` | JWT + branch authorization | DONE | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" JWT_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')"; .venv/bin/python -m django ensure_db && .venv/bin/python -m django migrate` | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 7 | `task07_debtors_refactor` | Debtors report refactor | DONE | `cd task07_debtors_refactor && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py check` | `cd task07_debtors_refactor && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 8 | `task08_receipt_outbox` | Reliable receipt dispatch (Celery/Redis) | DONE | `cd task08_receipt_outbox && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/celery -A celery_app worker -l info` | `cd task08_receipt_outbox && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 9 | `task09_cancellation_tests` | Cancellation policy tests (pytest) | DONE | `cd task09_cancellation_tests && set -a; . ../.env; set +a; .venv/bin/python -m cancelapp.db_setup && DJANGO_SETTINGS_MODULE=cancelapp.settings .venv/bin/python -c "import django; django.setup(); from datetime import timedelta; from cancelapp.services import compute_refund; print(compute_refund(101, timedelta(hours=24)))"` | `cd task09_cancellation_tests && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 10 | `task10_erp_architecture` | ERP architecture (design doc) | DONE | `cd task10_erp_architecture && .venv/bin/python check_doc.py` | `cd task10_erp_architecture && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q && .venv/bin/python check_doc.py` |
+| 1 | `task01_stream_merge` | Lazy k-way merge of event streams | DONE, frozen — 38 tests | `cd task01_stream_merge && .venv/bin/python measure_memory.py` | `cd task01_stream_merge && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 2 | `task02_pricing_engine` | Pricing engine (OOP/SOLID) | DONE — 39 tests | `cd task02_pricing_engine && .venv/bin/python -c "from decimal import Decimal as D; from pricing import QuoteEngine, QuoteContext, HourMultiplier, PercentDiscount, FixedCredit; print(QuoteEngine([HourMultiplier(D('1.5')), PercentDiscount(D('0.10')), FixedCredit(D('200'))]).quote(D('1000'), QuoteContext(10)))"` | `cd task02_pricing_engine && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 3 | `task03_court_report` | Financial report per court (ORM/PostgreSQL) | DONE — 30 tests | `cd task03_court_report && set -a; . ../.env; set +a; DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django ensure_db && DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django migrate --noinput` | `cd task03_court_report && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 4 | `task04_goods_transfer_api` | Goods transfer API (DRF) | DONE — 73 tests | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py runserver` | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 5 | `task05_last_seat_reservation` | Last-seat reservation (concurrency) | DONE — 24 tests | `cd task05_last_seat_reservation && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate` | `cd task05_last_seat_reservation && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 6 | `task06_jwt_branch_access` | JWT + branch authorization | DONE — 60 tests | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" JWT_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')"; .venv/bin/python -m django ensure_db && .venv/bin/python -m django migrate` | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 7 | `task07_debtors_refactor` | Debtors report refactor | DONE — 39 tests (28 passed, 11 xfailed) | `cd task07_debtors_refactor && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py check` | `cd task07_debtors_refactor && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 8 | `task08_receipt_outbox` | Reliable receipt dispatch (Celery/Redis) | DONE — 47 tests | `cd task08_receipt_outbox && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/celery -A celery_app worker -l info` | `cd task08_receipt_outbox && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 9 | `task09_cancellation_tests` | Cancellation policy tests (pytest) | DONE — 30 tests | `cd task09_cancellation_tests && set -a; . ../.env; set +a; .venv/bin/python -m cancelapp.db_setup && DJANGO_SETTINGS_MODULE=cancelapp.settings .venv/bin/python -c "import django; django.setup(); from datetime import timedelta; from cancelapp.services import compute_refund; print(compute_refund(101, timedelta(hours=24)))"` | `cd task09_cancellation_tests && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 10 | `task10_erp_architecture` | ERP architecture (design doc) | DONE — 75 tests | `cd task10_erp_architecture && .venv/bin/python check_doc.py` | `cd task10_erp_architecture && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q && .venv/bin/python check_doc.py` |
 
-T6 has no secret fallbacks: export real `DJANGO_SECRET_KEY` and `JWT_SECRET_KEY` for serve/manage commands (the test plugin generates ephemeral keys only for pytest).
+T4 and T6 have no secret fallbacks: export real `DJANGO_SECRET_KEY` (and `JWT_SECRET_KEY` for T6) for serve/manage commands. The test bootstrap generates ephemeral keys only for pytest.
 
-## Clean-clone verification
+## Round 2 gate verification (source tree)
 
-Verified from a fresh `git clone` of commit `f6d4a40` at `/tmp/clean-verify`: the clone bootstrapped **its own** PostgreSQL 16.2 and Redis with the committed `scripts/local_infra.sh start` (the script wrote the git-ignored `.env` — no hand-made env file), then a fresh Python 3.12 venv per task, `pip install -r requirements.txt`, and the gate above.
+These are the orchestrator's real gate results on the current `dev` tree, not claims about a fresh clone. Test counts are confirmed with `pytest --collect-only -q | tail -1` in each task folder.
 
-| Task | Gate | Tests | Extra |
+| Task | Ruff | Tests | Extra |
 | --- | --- | --- | --- |
-| 1 | ruff clean | `38 passed in 4.24s` | coverage 100% (`85` stmts) |
-| 2 | ruff clean | `39 passed in 0.05s` | coverage 100% (`145` stmts) |
-| 3 | ruff clean | `19 passed in 8.56s` | PostgreSQL 16.2 |
-| 4 | ruff clean | `59 passed in 25.21s` | PostgreSQL 16.2 |
-| 5 | ruff clean | `21 passed in 0.25s` | 5 consecutive concurrency runs: `4 passed` each (0.23–0.24 s) |
-| 6 | ruff clean | `45 passed in 13.61s` | PostgreSQL 16.2 + Redis 6.2 |
-| 7 | ruff clean | `20 passed in 0.17s` | 2 queries for 100 invoices |
-| 8 | ruff clean | `32 passed in 0.67s` | real migration, Redis 6.2 |
-| 9 | ruff clean | `30 passed in 0.15s` | coverage 100% (`90` stmts); mutation checker 3/3 CAUGHT |
-| 10 | ruff clean | `53 passed in 0.10s` | `check_doc.py` OK |
+| 1 | all clean, 6 files formatted | `38 passed in 3.96s` | `TOTAL 85 stmts, 0 miss, 100%` |
+| 2 | all clean, 10 files formatted | `39 passed in 0.03s` | `TOTAL 145 stmts, 0 miss, 100%` |
+| 3 | all clean, 20 files formatted | `30 passed in 9.99s` | benchmark header: naive 3382, optimized 4 |
+| 4 | all clean, 28 files formatted | `73 passed in 32.84s` | role matrix: `36/73 tests collected` |
+| 5 | all clean, 19 files formatted | `24 passed in 0.63s` | real PostgreSQL row-lock races |
+| 6 | all clean, 33 files formatted | `60 passed in 19.65s` | real-process Redis rate-limit test |
+| 7 | all clean, 18 files formatted | `28 passed, 11 xfailed in 0.43s` | `39 tests collected`; legacy defect run `11 failed` with `--runxfail` |
+| 8 | all clean, 20 files formatted | `47 passed in 5.07s` | real Redis broker + attempt history |
+| 9 | all clean, 17 files formatted | `30 passed in 0.40s` | `TOTAL 97 stmts, 0 miss, 100%`; mutation checker 3/3 |
+| 10 | all clean, 6 files formatted | `75 passed in 0.14s` | `check_doc.py` OK |
 
-Every task gate was also re-run by the orchestrator in the source tree before its commit. Dependency pins are now consistent across tasks (Django 5.2.19, DRF 3.16.1, psycopg 3.2.10, pytest 8.4.2, pytest-django 4.11.1, pytest-cov 7.1.0, pytest-timeout 2.4.0, ruff 0.17.6).
+Round-1 clean-clone evidence is recorded in [`docs/STATUS.md`](docs/STATUS.md); Round 2 did not re-run a fresh clone, so no new clean-clone claim is made here.
 
 ## AI assistance
 
-AI assistance was used. Tests were written from the spec first, run in a red phase, then the smallest implementation was added to turn them green. Every implementation was mutation-checked with deliberate defects and the results recorded in the task README. Every task README lists its assumptions and unfinished parts. Task 1 was frozen by `AGENTS.md`; its two stricter input validations were added only because the repository owner explicitly requested them after review.
+AI assistance was used. Tests were written from the spec first, run in a red phase, then the smallest implementation was added to turn them green. Every implementation was mutation-checked with deliberate defects and the results recorded in the task README. Every task README lists its assumptions and unfinished parts. Task 1 was frozen by `AGENTS.md`; its two stricter input validations were added only because the repository owner explicitly requested them in Round 1.
