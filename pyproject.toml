@@ -1,0 +1,18 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Each task folder is its own import root (tasks are independent).
+src = [
+  "task01_stream_merge",
+  "task02_pricing_engine",
+  "task03_court_report",
+  "task04_goods_transfer_api",
+  "task05_last_seat_reservation",
+  "task06_jwt_branch_access",
+  "task07_debtors_refactor",
+  "task08_receipt_outbox",
+  "task09_cancellation_tests",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]

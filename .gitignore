@@ -9,6 +9,7 @@ venv/
 *.egg-info/
 .coverage
 htmlcov/
+.hypothesis/
 
 # Django
 *.sqlite3
