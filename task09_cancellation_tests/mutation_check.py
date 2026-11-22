@@ -7,6 +7,7 @@ directory, one defect is applied there, and pytest runs against that copy.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -34,17 +35,29 @@ MUTATIONS: dict[str, tuple[str, str, str]] = {
         "test_spec_exactly_2h_remaining_returns_50",
     ),
     DEFECTS[2]: (
+        "        document_writer(locked, amount)\n"
+        '        locked.status = "cancelled"\n'
+        '        locked.save(update_fields=["status"])',
+        '        locked.status = "cancelled"\n'
+        '        locked.save(update_fields=["status"])\n'
         "    with transaction.atomic():\n"
-        "        document_writer(reservation, amount)\n"
-        '        reservation.status = "cancelled"\n'
-        '        reservation.save(update_fields=["status"])',
-        '    reservation.status = "cancelled"\n'
-        '    reservation.save(update_fields=["status"])\n'
-        "    with transaction.atomic():\n"
-        "        document_writer(reservation, amount)",
+        "        document_writer(locked, amount)",
         "test_spec_document_write_failure_rolls_back",
     ),
 }
+
+
+def _load_env() -> None:
+    """Export the shared env contract for the child pytest runs, without printing it."""
+    env_path = TASK_ROOT.parent / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 def _copy_sources(target: Path) -> None:
@@ -92,6 +105,7 @@ def _run_pytest(target: Path) -> list[str]:
 
 def main() -> int:
     """Print a defect-to-test table and exit non-zero if a defect survived."""
+    _load_env()
     print(f"{'deliberate defect':<45} | failing test names")
     print("-" * 110)
     all_caught = True

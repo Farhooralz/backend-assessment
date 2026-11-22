@@ -14,7 +14,7 @@ from mutation_check import DEFECTS, MUTATIONS
 def test_spec_uses_pytest_django(django_db_setup: None) -> None:
     assert settings.configured
     assert "cancelapp" in settings.INSTALLED_APPS
-    assert connection.vendor == "sqlite"
+    assert connection.vendor == "postgresql"
 
 
 @pytest.mark.django_db

@@ -53,20 +53,23 @@ def cancel(
     if not _may_cancel(reservation, user):
         raise PermissionDenied("Only the owner or a same-branch manager may cancel.")
 
-    if reservation.status == "cancelled":
-        document = RefundDocument.objects.get(reservation=reservation)
-        return CancellationResult(refund_amount=document.amount)
-
-    if reservation.status != "confirmed":
-        raise ReservationNotCancellable("Only a confirmed reservation can be cancelled.")
-    if now >= reservation.start:
-        raise ReservationNotCancellable("A reservation cannot be cancelled at or after its start.")
-
-    amount = compute_refund(reservation.payment_amount, reservation.start - now)
-
     with transaction.atomic():
-        document_writer(reservation, amount)
-        reservation.status = "cancelled"
-        reservation.save(update_fields=["status"])
+        # Lock first: a racing caller then sees the committed status and replays
+        # the stored result instead of writing a second refund document.
+        locked = Reservation.objects.select_for_update().get(pk=reservation.pk)
+        if locked.status == "cancelled":
+            document = RefundDocument.objects.get(reservation=locked)
+            return CancellationResult(refund_amount=document.amount)
+        if locked.status != "confirmed":
+            raise ReservationNotCancellable("Only a confirmed reservation can be cancelled.")
+        if now >= locked.start:
+            raise ReservationNotCancellable(
+                "A reservation cannot be cancelled at or after its start."
+            )
+
+        amount = compute_refund(locked.payment_amount, locked.start - now)
+        document_writer(locked, amount)
+        locked.status = "cancelled"
+        locked.save(update_fields=["status"])
 
     return CancellationResult(refund_amount=amount)

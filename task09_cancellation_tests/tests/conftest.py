@@ -4,7 +4,11 @@ from datetime import UTC, datetime
 
 import pytest
 
+from cancelapp.db_setup import ensure_database
 from cancelapp.models import Branch, Reservation, User
+
+# Must run before pytest-django creates test_task09.
+ensure_database()
 
 START = datetime(2030, 1, 1, 12, 0, tzinfo=UTC)
 
