@@ -37,6 +37,35 @@ pushes. This file overrides `docs/PLAN.md` and `docs/ENGINEERING_PLAN.md` wherev
    error in `docs/STATUS.md` (orchestrator does this), and move on to the next task.
 9. Never `git push --force`, `git reset --hard`, `git rebase`, or delete branches.
 
+## Round-2 rules (added after external review; these override anything above that conflicts)
+
+10. **Red first, with proof.** For every fix, first write a test that fails on the CURRENT code for the
+    stated reason. Run it, and paste the failing assertion line into the task README under "Round 2".
+    If a listed finding does NOT reproduce, do not force a fix. Write "not reproduced" and the evidence.
+11. **Mutation checks must hit business logic.** A mutation is valid only if it changes behaviour
+    (drop a filter, flip `<` to `<=`, remove `atomic()`, skip a lock, drop `distinct`). Mutating
+    `ensure_db`, a benchmark selector, a README, or a type hint does not count. Every README mutation table
+    names the exact test that fails (`file::test_name`).
+12. **No grep-as-proof.** Tests that grep the README or the source (e.g. "README mentions lock order",
+    "source has no `threading.Lock`") may exist only as extra deliverable-presence checks. Each such
+    deliverable also needs a behavioural test. Delete tests that are tautological or duplicate another test.
+13. **Every number in a README must be reproducible.** If a README says "252 queries", "36 cases" or
+    "9.45s", a test or a command in the repo must print/assert exactly that. Test counts come from
+    `pytest --collect-only -q | tail -1`. Remove any claim you cannot reproduce.
+14. **Atomicity/rollback tests** use `@pytest.mark.django_db(transaction=True)`, inject the failure AFTER
+    the first write has happened, and then verify state through a SEPARATE connection. A failure injected
+    before any write proves nothing.
+15. **Concurrency tests:** open the DB connection first, then wait on the barrier. Keep every connection
+    open until after all workers finish if the test asserts distinct `pg_backend_pid()`s. Use real
+    processes (`multiprocessing`, spawn) where the spec says "workers"; threads are acceptable only for DB
+    row-lock races.
+16. **Honest docs.** If behaviour differs from what a README/docstring says, fix the text or the code in the
+    same commit. Wrong docs count as a bug. Spec ambiguities go under "Assumptions" with a ⚠ marker.
+
+Commits: one commit per task per round: `taskNN: round 2 - <summary>`. Same git rules as before.
+Subagents may run in parallel (tasks are independent), but the orchestrator must run every gate itself
+before committing.
+
 ## Per-task folder (each task is self-contained)
 `taskNN_*/` contains: source, `tests/`, pinned `requirements.txt`, `pytest.ini` (or equivalent),
 `ruff.toml`, and `README.md`.

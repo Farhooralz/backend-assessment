@@ -1,6 +1,9 @@
 # Task status
 
-Last updated: 2026-11-22 — final. All ten tasks DONE, reviewer findings addressed, clean-clone verification green.
+Last updated: <date> - ROUND 2 IN PROGRESS. Round 1 was code-complete, but an external review found
+2 real bugs (task03 untagged-tag crash, task08 backoff bypass), 1 design flaw (task10 hot-court lock math)
+and several tests that pass for the wrong reason (task09 atomicity, task05 rollback, task03 query counts).
+Round-1 "DONE" results are NOT final. See `docs/ROUND2_BRIEF.md`.
 
 Infrastructure note: `docker compose up -d` failed with "permission denied". The no-Docker fallback `scripts/local_infra.sh` is now committed and was verified from a fresh clone: it bootstrapped its own PostgreSQL 16.2 (unix socket) and Redis 6.2, wrote the git-ignored `.env`, and a real `psycopg` query plus `redis.ping()` both succeeded. No `.env` values were printed or committed. Python 3.12.16 (uv-managed) was used for every gate; no Python 3.14 result is claimed.
 
@@ -16,18 +19,18 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 - T9: PostgreSQL + `select_for_update` cancel; concurrent-cancel test; `ensure_db`; mutation checker updated.
 - T10: partial exclusion constraint with `btree_gist`, corrected ERD, bounded staleness, sizing math, multiple SLOs, stronger doc checks.
 
-| Task | Folder | Status | Notes |
+| Task | Round 1 | Round 2 (fix) | Status |
 | --- | --- | --- | --- |
-| 1 | `task01_stream_merge` | DONE | 38 tests; 100% coverage; eager validation + key-type error. |
-| 2 | `task02_pricing_engine` | DONE | 39 tests; 100% coverage; spec order enforced. |
-| 3 | `task03_court_report` | DONE | 19 tests; 4 queries for 50 courts; real EXPLAIN ANALYZE. |
-| 4 | `task04_goods_transfer_api` | DONE | 59 tests; role matrix and page size 20. |
-| 5 | `task05_last_seat_reservation` | DONE | 21 tests; 20-thread race; 5x concurrency reruns green. |
-| 6 | `task06_jwt_branch_access` | DONE | 45 tests; atomic limiter, locked rotation, fail-closed keys. |
-| 7 | `task07_debtors_refactor` | DONE | 20 tests; 2 queries for 100 invoices; defect report. |
-| 8 | `task08_receipt_outbox` | DONE | 32 tests; lease, broker recovery, real migration. |
-| 9 | `task09_cancellation_tests` | DONE | 30 tests; 100% coverage; 3/3 mutations caught. |
-| 10 | `task10_erp_architecture` | DONE | 53 doc tests; `check_doc.py` OK. |
+| 1 | DONE | none, frozen | DONE (fuzz-checked externally) |
+| 2 | DONE | none | DONE |
+| 3 | DONE | P0 bug + tests + seed + EXPLAIN | TODO |
+| 4 | DONE | P1 tests/README/settings | TODO |
+| 5 | DONE | P1 tests | TODO |
+| 6 | DONE | P1 validation/logout/tests | TODO |
+| 7 | DONE | P2 legacy-vs-new proof | TODO |
+| 8 | DONE | P0 bug + P1 tests/observability | TODO |
+| 9 | DONE | P0 test rewrite | TODO |
+| 10 | DONE | P1 design fixes | TODO |
 
 ## Clean-clone verification (final)
 
