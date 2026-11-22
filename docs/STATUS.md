@@ -23,7 +23,7 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 | --- | --- | --- | --- |
 | 1 | DONE | none, frozen | DONE (fuzz-checked externally) |
 | 2 | DONE | none | DONE |
-| 3 | DONE | P0 bug + tests + seed + EXPLAIN | TODO |
+| 3 | DONE | P0 bug + tests + seed + EXPLAIN | DONE (round 2) |
 | 4 | DONE | P1 tests/README/settings | TODO |
 | 5 | DONE | P1 tests | TODO |
 | 6 | DONE | P1 validation/logout/tests | TODO |
@@ -50,7 +50,17 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
   `test_spec_crash_reclaim_beyond_max_attempts_fails` fail with
   `assert OutboxMessage.Status.SENT == 'failed'`; the fixed file was restored and the gate re-run green.
   Findings 4, 6 and 8 were documented as "not reproduced as bugs" with evidence in the task README.
-- Wave A (T3) still in progress.
+- T3 DONE. Orchestrator gate: `ruff format .` 20 unchanged, `ruff check .` All checks passed!,
+  `ruff format --check .` 20 already formatted, `pytest -q` 30 passed in 9.99s;
+  `pytest --collect-only -q | tail -1` 30 tests collected. Hand-revert of `reports/services.py` made
+  `test_spec_untagged_booking_does_not_add_none_tag` and
+  `test_spec_naive_equals_optimized_with_untagged_bookings` fail with
+  `TypeError: '<' not supported between instances of 'str' and 'NoneType'`,
+  `test_spec_out_of_range_page_clamps` fail with `EmptyPage`, and
+  `test_spec_page_size_is_capped_at_100` fail with `assert 120 == 100`; the fixed file was restored
+  and the gate re-run green. The benchmark command was re-run and printed
+  `=== Query counts: naive 3382 (3382 by formula), optimized 4; courts 20, confirmed bookings in range 1680 ===`.
+  Wave A is complete.
 
 ## Clean-clone verification (final)
 

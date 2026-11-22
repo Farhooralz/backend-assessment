@@ -7,19 +7,19 @@ from datetime import date
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from reports.models import Booking, Court
 from reports.services import (
-    DATE_FROM,
-    DATE_TO,
     ReportResult,
     naive_court_report,
     optimized_court_report,
 )
 
-BENCH_DATE = date(2026, 6, 16)
-# The seed correlates court index with start_date; page 4 starts at court 7,
-# which actually has confirmed bookings on BENCH_DATE in the 100k dataset.
-BENCH_PAGE = 4
-BENCH_PAGE_SIZE = 2
+# A full 50-court page over one realistic week of the 100k seed. A month would
+# make the deliberately N+1 service exceed Django's 9,000-query capture buffer.
+BENCH_DATE_FROM = date(2026, 6, 1)
+BENCH_DATE_TO = date(2026, 6, 7)
+BENCH_PAGE = 1
+BENCH_PAGE_SIZE = 50
 
 ReportFn = Callable[..., ReportResult]
 
@@ -35,10 +35,10 @@ class ExplainResult:
 
 def capture_sql(
     report: ReportFn,
-    date_from: date = DATE_FROM,
-    date_to: date = DATE_TO,
+    date_from: date = BENCH_DATE_FROM,
+    date_to: date = BENCH_DATE_TO,
     *,
-    page: int = 1,
+    page: int = BENCH_PAGE,
     page_size: int = BENCH_PAGE_SIZE,
 ) -> list[str]:
     """Return the SQL Django really executed, with bound literals inlined."""
@@ -57,10 +57,10 @@ def _first(statements: Iterable[str], predicate: Callable[[str], bool], label: s
 
 
 def naive_real_sql(
-    date_from: date = DATE_FROM,
-    date_to: date = DATE_TO,
+    date_from: date = BENCH_DATE_FROM,
+    date_to: date = BENCH_DATE_TO,
     *,
-    page: int = 1,
+    page: int = BENCH_PAGE,
     page_size: int = BENCH_PAGE_SIZE,
 ) -> dict[str, str]:
     """One real statement per N+1 hop: bookings, payments, then tags."""
@@ -89,10 +89,10 @@ def naive_real_sql(
 
 
 def optimized_real_sql(
-    date_from: date = DATE_FROM,
-    date_to: date = DATE_TO,
+    date_from: date = BENCH_DATE_FROM,
+    date_to: date = BENCH_DATE_TO,
     *,
-    page: int = 1,
+    page: int = BENCH_PAGE,
     page_size: int = BENCH_PAGE_SIZE,
 ) -> dict[str, str]:
     """The two real set-based statements the optimized service issues."""
@@ -121,10 +121,10 @@ def explain_analyze(sql: str) -> str:
 
 
 def benchmark(
-    date_from: date = DATE_FROM,
-    date_to: date = DATE_TO,
+    date_from: date = BENCH_DATE_FROM,
+    date_to: date = BENCH_DATE_TO,
     *,
-    page: int = 1,
+    page: int = BENCH_PAGE,
     page_size: int = BENCH_PAGE_SIZE,
 ) -> list[ExplainResult]:
     """Compare real plans for both services at the same filter and page."""
@@ -135,9 +135,41 @@ def benchmark(
     return [ExplainResult(label, sql, explain_analyze(sql)) for label, sql in captured.items()]
 
 
+def query_counts(
+    date_from: date = BENCH_DATE_FROM,
+    date_to: date = BENCH_DATE_TO,
+    *,
+    page: int = BENCH_PAGE,
+    page_size: int = BENCH_PAGE_SIZE,
+) -> dict[str, int]:
+    """Count real queries and the inputs behind the naive N+1 formula."""
+    bookings = Booking.objects.filter(
+        confirmed=True, start_date__gte=date_from, start_date__lte=date_to
+    ).count()
+    courts = Court.objects.count()
+    return {
+        "bookings": bookings,
+        "courts": courts,
+        "naive": len(
+            capture_sql(naive_court_report, date_from, date_to, page=page, page_size=page_size)
+        ),
+        "optimized": len(
+            capture_sql(optimized_court_report, date_from, date_to, page=page, page_size=page_size)
+        ),
+        "naive_formula": 2 + courts + 2 * bookings,
+    }
+
+
 def main() -> None:
-    """Print the real statements and plans (run through ``django shell``)."""
-    for result in benchmark(BENCH_DATE, BENCH_DATE, page=BENCH_PAGE, page_size=BENCH_PAGE_SIZE):
+    """Print the real query counts, statements and plans (via ``django shell``)."""
+    counts = query_counts()
+    print(
+        f"=== Query counts: naive {counts['naive']} ({counts['naive_formula']} by formula), "
+        f"optimized {counts['optimized']}; courts {counts['courts']}, "
+        f"confirmed bookings in range {counts['bookings']} ==="
+    )
+    print()
+    for result in benchmark(BENCH_DATE_FROM, BENCH_DATE_TO):
         print(f"=== {result.label} ===")
         print("SQL:", " ".join(result.sql.split()))
         print(result.plan)

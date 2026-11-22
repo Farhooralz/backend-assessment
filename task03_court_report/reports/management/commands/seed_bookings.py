@@ -17,9 +17,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser) -> None:
         parser.add_argument("--bookings", type=int, default=100_000)
+        parser.add_argument("--reset", action="store_true", help="Replace an existing dataset.")
 
     def handle(self, *args, **options) -> None:
         total: int = options["bookings"]
+        if options["reset"]:
+            Booking.objects.all().delete()  # cascades payments and tag links
+        elif Booking.objects.exists():
+            self.stdout.write("Already seeded; pass --reset to replace the dataset.")
+            return
         branch, _ = Branch.objects.get_or_create(name="Seed Branch")
         courts = list(Court.objects.filter(branch=branch).order_by("id")[:COURTS])
         if len(courts) < COURTS:
@@ -38,11 +44,13 @@ class Command(BaseCommand):
         through = Booking.tags.through
         for offset in range(0, total, BATCH):
             size = min(BATCH, total - offset)
+            # Date, court and confirmation use coprime cycles: every court gets
+            # bookings on every date, with both confirmed and unconfirmed rows.
             bookings = Booking.objects.bulk_create(
                 Booking(
                     court=courts[i % COURTS],
-                    start_date=start + timedelta(days=i % 365),
-                    confirmed=i % 5 != 0,
+                    start_date=start + timedelta(days=(i // COURTS) % 365),
+                    confirmed=i % 7 != 0,
                 )
                 for i in range(offset, offset + size)
             )
