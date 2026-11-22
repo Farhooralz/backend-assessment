@@ -1,0 +1,30 @@
+"""Operator command to re-pursue a failed receipt dispatch."""
+
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+from django.utils import timezone
+
+from receipts.models import OutboxMessage
+from receipts.tasks import dispatch_receipt
+
+
+class Command(BaseCommand):
+    help = "Reset a failed outbox row and dispatch it again with the same key."
+
+    def add_arguments(self, parser: object) -> None:
+        parser.add_argument("message_id", type=int)
+
+    def handle(self, *args: object, **options: object) -> None:
+        message_id = options["message_id"]
+        with transaction.atomic():
+            try:
+                outbox = OutboxMessage.objects.select_for_update().get(pk=message_id)
+            except OutboxMessage.DoesNotExist as exc:
+                raise CommandError(f"no outbox message with id {message_id}") from exc
+            outbox.status = OutboxMessage.Status.PENDING
+            outbox.attempts = 0
+            outbox.next_attempt_at = timezone.now()
+            outbox.last_error = ""
+            outbox.save(update_fields=["status", "attempts", "next_attempt_at", "last_error"])
+        dispatch_receipt.delay(message_id)
+        self.stdout.write(f"requeued outbox message {message_id}")
