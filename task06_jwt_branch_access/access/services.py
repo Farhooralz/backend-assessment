@@ -1,5 +1,6 @@
 """Business rules: visibility, login, refresh rotation and logout."""
 
+import logging
 from uuid import uuid4
 
 from django.conf import settings
@@ -11,6 +12,8 @@ from django.db.models import Q
 from access import rate_limit, tokens
 from access.clocks import utcnow
 from access.models import Invoice, LoginSession, Membership
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidCredentials(Exception):
@@ -42,14 +45,17 @@ def login(username: str, password: str) -> dict:
     if user is None:
         # The atomic increment includes this attempt; LIMIT failures are tolerated,
         # so only the following one is throttled. No racy check-then-record window.
+        logger.info("login rejected: invalid credentials")
         count = rate_limit.record_failure(username)
         if count > settings.LOGIN_FAILURE_LIMIT:
             raise RateLimited("too many failed login attempts")
         raise InvalidCredentials("invalid username or password")
     if rate_limit.is_limited(username):
+        logger.info("login rejected: account is rate limited")
         raise RateLimited("too many failed login attempts")
     rate_limit.clear_failures(username)
     session = LoginSession.objects.create(user=user, refresh_jti=uuid4().hex)
+    logger.info("login accepted for user id %s", user.pk)
     sid = str(session.session_id)
     return {
         "access": tokens.issue_access_token(user.pk, sid),

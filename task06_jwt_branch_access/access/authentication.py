@@ -27,6 +27,8 @@ class JWTAuthentication(BaseAuthentication):
             or not session.user.is_active
         ):
             raise AuthenticationFailed("session is not active")
+        # Hand the verified claims to views so logout never decodes the JWT twice.
+        request.jwt_claims = claims
         return (session.user, token)
 
     def authenticate_header(self, request) -> str:

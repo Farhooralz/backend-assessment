@@ -41,3 +41,18 @@ def test_spec_settings_use_environment_secrets(monkeypatch) -> None:
     namespace = runpy.run_path(SETTINGS_PATH)
     assert namespace["SECRET_KEY"] == django_key
     assert namespace["JWT_SECRET_KEY"] == jwt_key
+
+
+def test_spec_allowed_hosts_comes_from_environment(monkeypatch) -> None:
+    monkeypatch.setenv("DJANGO_SECRET_KEY", secrets.token_urlsafe(48))
+    monkeypatch.setenv("JWT_SECRET_KEY", secrets.token_urlsafe(48))
+    monkeypatch.setenv("ALLOWED_HOSTS", "example.com, api.example.com")
+    namespace = runpy.run_path(SETTINGS_PATH)
+    assert namespace["ALLOWED_HOSTS"] == ["example.com", "api.example.com"]
+
+
+def test_spec_settings_reject_short_jwt_secret(monkeypatch) -> None:
+    monkeypatch.setenv("DJANGO_SECRET_KEY", secrets.token_urlsafe(48))
+    monkeypatch.setenv("JWT_SECRET_KEY", "x" * 31)
+    with pytest.raises(ImproperlyConfigured, match="at least 32 bytes"):
+        runpy.run_path(SETTINGS_PATH)

@@ -1,17 +1,17 @@
 """Thin HTTP layer; all authorization and token rules live in services."""
 
-import logging
-
 from rest_framework import status
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ReadOnlyModelViewSet
 
 from access import services, tokens
-from access.serializers import InvoiceSerializer
+from access.authentication import JWTAuthentication
+from access.serializers import InvoiceSerializer, valid_body
 
-logger = logging.getLogger(__name__)
+_BAD_BODY = {"detail": "invalid request body"}
 
 
 class LoginView(APIView):
@@ -19,10 +19,11 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request) -> Response:
-        username = request.data.get("username", "")
-        logger.info("login attempt for user %s", username)
+        body = valid_body(request.data, "username", "password")
+        if body is None:
+            return Response(_BAD_BODY, status=status.HTTP_400_BAD_REQUEST)
         try:
-            data = services.login(username, request.data.get("password", ""))
+            data = services.login(body["username"], body["password"])
         except services.RateLimited:
             return Response({"detail": "too many failed login attempts"}, status=429)
         except services.InvalidCredentials:
@@ -35,8 +36,11 @@ class RefreshView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request) -> Response:
+        body = valid_body(request.data, "refresh")
+        if body is None:
+            return Response(_BAD_BODY, status=status.HTTP_400_BAD_REQUEST)
         try:
-            data = services.refresh(request.data.get("refresh", ""))
+            data = services.refresh(body["refresh"])
         except services.InvalidRefresh:
             return Response(
                 {"detail": "invalid refresh token"}, status=status.HTTP_401_UNAUTHORIZED
@@ -45,10 +49,31 @@ class RefreshView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    """Close a session using a verified access token or a refresh token in the body."""
+
+    authentication_classes: list = []  # chosen explicitly per request below
+    permission_classes = [AllowAny]
+
+    def get_authenticate_header(self, request) -> str:
+        # DRF converts AuthenticationFailed to 403 when no authenticator supplies
+        # a header; logout has none of its own, so advertise Bearer explicitly.
+        return "Bearer"
 
     def post(self, request) -> Response:
-        claims = tokens.decode_token(request.auth, "access")
+        body = valid_body(request.data)
+        if body is None:
+            return Response(_BAD_BODY, status=status.HTTP_400_BAD_REQUEST)
+        refresh = body.get("refresh")
+        if refresh is not None:
+            # An expired access token must not stop a client closing its session.
+            try:
+                claims = tokens.decode_token(refresh, "refresh")
+            except tokens.TokenError as exc:
+                raise AuthenticationFailed("invalid or expired refresh token") from exc
+        else:
+            if JWTAuthentication().authenticate(request) is None:
+                raise AuthenticationFailed("invalid or expired access token")
+            claims = request.jwt_claims  # already verified by the authentication class
         services.logout(claims)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

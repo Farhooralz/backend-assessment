@@ -1,5 +1,6 @@
 """Per-account login throttling backed by one atomic Lua script in shared Redis."""
 
+import multiprocessing
 import os
 import threading
 import time
@@ -13,6 +14,7 @@ from rest_framework.test import APIClient
 
 from access import rate_limit
 from tests.conftest import LOGIN_URL
+from tests.rate_limit_worker import run as spawn_worker
 
 KEY = "login_failures:analyst"
 
@@ -169,4 +171,38 @@ def test_spec_sixth_failed_login_across_concurrent_workers(api, analyst, monkeyp
 
     assert statuses.count(429) == 1, statuses
     assert statuses.count(401) == 5, statuses
+    assert int(_redis().get(KEY)) == 6
+
+
+@pytest.mark.django_db
+def test_spec_correct_password_rejected_while_locked(api, analyst) -> None:
+    for _ in range(5):
+        assert _fail(api).status_code == 401
+    response = api.post(LOGIN_URL, {"username": "analyst", "password": "pw"}, format="json")
+    assert response.status_code == 429
+    assert int(_redis().get(KEY)) == 5  # a rejected correct-password attempt is not counted
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.timeout(90)
+def test_spec_sixth_failed_login_across_real_processes(api, analyst) -> None:
+    """Six spawned workers share one Redis counter, whatever process they run in."""
+    ctx = multiprocessing.get_context("spawn")
+    barrier = ctx.Barrier(6)
+    queue = ctx.Queue()
+    db_name = connection.settings_dict["NAME"]
+    processes = [
+        ctx.Process(target=spawn_worker, args=(db_name, barrier, queue, "analyst"))
+        for _ in range(6)
+    ]
+    for process in processes:
+        process.start()
+    try:
+        statuses = [queue.get(timeout=60) for _ in processes]
+    finally:
+        for process in processes:
+            process.join(timeout=30)
+    assert [process.exitcode for process in processes] == [0] * 6
+    assert statuses.count(401) == 5, statuses
+    assert statuses.count(429) == 1, statuses
     assert int(_redis().get(KEY)) == 6

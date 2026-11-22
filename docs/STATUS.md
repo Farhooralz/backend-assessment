@@ -26,7 +26,7 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 | 3 | DONE | P0 bug + tests + seed + EXPLAIN | DONE (round 2) |
 | 4 | DONE | P1 tests/README/settings | TODO |
 | 5 | DONE | P1 tests | TODO |
-| 6 | DONE | P1 validation/logout/tests | TODO |
+| 6 | DONE | P1 validation/logout/tests | DONE (round 2) |
 | 7 | DONE | P2 legacy-vs-new proof | TODO |
 | 8 | DONE | P0 bug + P1 tests/observability | DONE (round 2) |
 | 9 | DONE | P0 test rewrite | DONE (round 2) |
@@ -60,7 +60,15 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
   `test_spec_page_size_is_capped_at_100` fail with `assert 120 == 100`; the fixed file was restored
   and the gate re-run green. The benchmark command was re-run and printed
   `=== Query counts: naive 3382 (3382 by formula), optimized 4; courts 20, confirmed bookings in range 1680 ===`.
-  Wave A is complete.
+  Wave A is complete. Wave B (T5, T6, T4, T10) launched.
+
+- T6 DONE. Orchestrator gate: `ruff format .` 33 unchanged, `ruff check .` All checks passed!,
+  `ruff format --check .` 33 already formatted, `pytest -q` 60 passed in 19.65s;
+  `pytest --collect-only -q | tail -1` 60 tests collected. Brief items that already worked are documented
+  as "not reproduced" with guard tests; the raw-username log leak, malformed-body 500s, logout token
+  handling and env/secret settings were fixed. Mutation check: skip logout save →
+  `assert None is not None`, drop string check → `assert 401 == 400`, flip limiter `>=` to `>` →
+  `assert 200 == 429`.
 
 ## Clean-clone verification (final)
 

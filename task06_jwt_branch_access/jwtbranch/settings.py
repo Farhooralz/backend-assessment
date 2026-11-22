@@ -18,10 +18,16 @@ def _required_secret(name: str) -> str:
 
 SECRET_KEY = _required_secret("DJANGO_SECRET_KEY")
 JWT_SECRET_KEY = _required_secret("JWT_SECRET_KEY")
+if len(JWT_SECRET_KEY.encode("utf-8")) < 32:
+    raise ImproperlyConfigured("JWT_SECRET_KEY must be at least 32 bytes")
 JWT_ALGORITHM = "HS256"
 
 DEBUG = False
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if host.strip()
+]
 
 INSTALLED_APPS = [
     "django.contrib.auth",

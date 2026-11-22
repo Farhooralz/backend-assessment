@@ -2,6 +2,7 @@
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -10,6 +11,7 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from access import tokens
+from access.clocks import utcnow
 from access.models import LoginSession
 from tests.conftest import INVOICES_URL, LOGOUT_URL, REFRESH_URL, auth, login
 
@@ -150,3 +152,73 @@ def test_spec_concurrent_refresh_rotation_has_one_winner(api, analyst) -> None:
     assert session.revoked_at is not None  # the loser's stale-token reuse closed the session
     replay = api.post(REFRESH_URL, {"refresh": winner["refresh"]}, format="json")
     assert replay.status_code == 401
+
+
+@pytest.mark.django_db
+def test_spec_expired_refresh_token_over_http_returns_401(api, analyst) -> None:
+    pair = login(api)
+    claims = tokens.decode_token(pair["refresh"], "refresh")
+    expired = tokens.issue_refresh_token(
+        analyst.pk,
+        claims["sid"],
+        claims["jti"],
+        now=utcnow() - timedelta(days=8),
+    )
+    response = api.post(REFRESH_URL, {"refresh": expired}, format="json")
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_spec_refreshing_one_session_leaves_the_other_valid(api, analyst) -> None:
+    first = login(api)
+    second = login(api)
+    assert api.post(REFRESH_URL, {"refresh": first["refresh"]}, format="json").status_code == 200
+    assert api.get(INVOICES_URL, **auth(second["access"])).status_code == 200
+    assert api.post(REFRESH_URL, {"refresh": second["refresh"]}, format="json").status_code == 200
+    sid = tokens.decode_token(second["access"], "access")["sid"]
+    assert LoginSession.objects.get(session_id=sid).revoked_at is None
+
+
+@pytest.mark.django_db
+def test_spec_logout_accepts_refresh_token_in_body(api, analyst) -> None:
+    pair = login(api)
+    response = api.post(LOGOUT_URL, {"refresh": pair["refresh"]}, format="json")
+    assert response.status_code == 204
+    sid = tokens.decode_token(pair["access"], "access")["sid"]
+    assert LoginSession.objects.get(session_id=sid).revoked_at is not None
+    assert api.get(INVOICES_URL, **auth(pair["access"])).status_code == 401
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", ["malformed", "expired"])
+def test_spec_logout_with_bad_refresh_returns_401(api, analyst, bad) -> None:
+    pair = login(api)
+    claims = tokens.decode_token(pair["refresh"], "refresh")
+    refresh = (
+        "not-a-jwt"
+        if bad == "malformed"
+        else tokens.issue_refresh_token(
+            analyst.pk, claims["sid"], claims["jti"], now=utcnow() - timedelta(days=8)
+        )
+    )
+    response = api.post(LOGOUT_URL, {"refresh": refresh}, format="json", **auth(pair["access"]))
+    assert response.status_code == 401
+    sid = claims["sid"]
+    assert LoginSession.objects.get(session_id=sid).revoked_at is None
+
+
+@pytest.mark.django_db
+def test_spec_logout_does_not_decode_access_token_twice(api, analyst, monkeypatch) -> None:
+    original = tokens.decode_token
+    access_decodes: list[str] = []
+
+    def counting(token: str, expected_type: str, **kwargs: object) -> dict:
+        if expected_type == "access":
+            access_decodes.append(token)
+        return original(token, expected_type, **kwargs)
+
+    monkeypatch.setattr(tokens, "decode_token", counting)
+    pair = login(api)
+    access_decodes.clear()
+    assert api.post(LOGOUT_URL, **auth(pair["access"])).status_code == 204
+    assert len(access_decodes) == 1  # only the authentication class verifies the access JWT

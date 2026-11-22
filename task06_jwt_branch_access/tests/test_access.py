@@ -102,3 +102,9 @@ def test_spec_missing_token_returns_401(api, analyst) -> None:
 @pytest.mark.django_db
 def test_spec_malformed_token_returns_401(api, analyst) -> None:
     assert api.get(INVOICES_URL, **auth("not-a-jwt")).status_code == 401
+
+
+@pytest.mark.django_db
+def test_spec_refresh_token_used_as_bearer_returns_401(api, analyst) -> None:
+    pair = login(api)
+    assert api.get(INVOICES_URL, **auth(pair["refresh"])).status_code == 401
