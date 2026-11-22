@@ -15,3 +15,7 @@ class ReservationNotCancellable(CancellationError):
 
 class RefundDocumentWriteError(CancellationError):
     """Recording the refund document failed."""
+
+
+class InconsistentStateError(CancellationError):
+    """A cancelled reservation has no refund document to replay."""

@@ -1,12 +1,25 @@
 """Integration tests: cancel against the database with an injected clock."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
+import cancelapp.errors as errors
 from cancelapp.errors import ReservationNotCancellable
 from cancelapp.models import RefundDocument, Reservation
 from cancelapp.services import CancellationResult, cancel
+
+
+class FakeTimezone:
+    """Stand-in for the only clock the service is allowed to read."""
+
+    def __init__(self, value: datetime) -> None:
+        self.value = value
+        self.calls = 0
+
+    def now(self) -> datetime:
+        self.calls += 1
+        return self.value
 
 
 @pytest.mark.django_db
@@ -82,14 +95,36 @@ def test_spec_repeat_returns_previous_result(reservation: Reservation) -> None:
 
 
 @pytest.mark.django_db
-def test_spec_clock_is_injected_not_read_from_wall(
+def test_spec_cancelled_without_document_raises_inconsistent_state(
+    reservation: Reservation,
+) -> None:
+    reservation.status = "cancelled"
+    reservation.save(update_fields=["status"])
+    with pytest.raises(errors.InconsistentStateError):
+        cancel(reservation, reservation.owner, reservation.start - timedelta(hours=25))
+    assert RefundDocument.objects.filter(reservation=reservation).count() == 0
+
+
+@pytest.mark.django_db
+def test_spec_default_clock_is_timezone_now(
     monkeypatch: pytest.MonkeyPatch, reservation: Reservation
 ) -> None:
-    class ForbiddenWallClock:
-        @staticmethod
-        def now() -> None:
-            raise AssertionError("the service must not read the wall clock")
+    clock = FakeTimezone(reservation.start - timedelta(hours=3))
+    monkeypatch.setattr("cancelapp.services.timezone", clock, raising=False)
+    result = cancel(reservation, reservation.owner)
+    assert clock.calls == 1
+    assert result.refund_amount == 50
 
-    monkeypatch.setattr("cancelapp.services.datetime", ForbiddenWallClock, raising=False)
+
+@pytest.mark.django_db
+def test_spec_explicit_now_does_not_read_default_clock(
+    monkeypatch: pytest.MonkeyPatch, reservation: Reservation
+) -> None:
+    class ExplodingClock:
+        @staticmethod
+        def now() -> datetime:
+            raise AssertionError("the service must use the injected now, not the default clock")
+
+    monkeypatch.setattr("cancelapp.services.timezone", ExplodingClock(), raising=False)
     result = cancel(reservation, reservation.owner, reservation.start - timedelta(hours=25))
     assert result.refund_amount == 101

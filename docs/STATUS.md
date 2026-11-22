@@ -1,6 +1,6 @@
 # Task status
 
-Last updated: <date> - ROUND 2 IN PROGRESS. Round 1 was code-complete, but an external review found
+Last updated: 2026-11-22 - ROUND 2 IN PROGRESS. Round 1 was code-complete, but an external review found
 2 real bugs (task03 untagged-tag crash, task08 backoff bypass), 1 design flaw (task10 hot-court lock math)
 and several tests that pass for the wrong reason (task09 atomicity, task05 rollback, task03 query counts).
 Round-1 "DONE" results are NOT final. See `docs/ROUND2_BRIEF.md`.
@@ -29,8 +29,19 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 | 6 | DONE | P1 validation/logout/tests | TODO |
 | 7 | DONE | P2 legacy-vs-new proof | TODO |
 | 8 | DONE | P0 bug + P1 tests/observability | TODO |
-| 9 | DONE | P0 test rewrite | TODO |
+| 9 | DONE | P0 test rewrite | DONE (round 2) |
 | 10 | DONE | P1 design fixes | TODO |
+
+### Round 2 progress (chronological)
+
+- T9 DONE. Orchestrator gate: `ruff format .` 17 unchanged, `ruff check .` All checks passed!,
+  `ruff format --check .` 17 already formatted, `pytest -q` 30 passed in 0.40s;
+  `pytest --collect-only -q | tail -1` 30 tests collected; coverage `TOTAL 97 stmts, 0 miss, 100%`;
+  `mutation_check.py` 3/3 CAUGHT. Hand-revert of `cancelapp/services.py` made
+  `test_spec_default_clock_is_timezone_now` fail with `TypeError: cancel() missing 1 required
+  positional argument: 'now'` and `test_spec_cancelled_without_document_raises_inconsistent_state`
+  fail with `RefundDocument.DoesNotExist`; the fixed file was restored and the gate re-run green.
+- Wave A (T8, T3) still in progress.
 
 ## Clean-clone verification (final)
 
