@@ -1,38 +1,18 @@
 """Create this task's database and isolate its Redis index before tests run."""
 
-import contextlib
 import os
 
-import psycopg
 import pytest
 import redis
-from psycopg import errors as pg_errors
+
+from access.db_utils import ensure_database
 
 TASK_DB = "task06"
 REDIS_DB = 6
 
 
-def _pg_kwargs(dbname: str) -> dict:
-    kwargs = {
-        "dbname": dbname,
-        "user": os.environ.get("POSTGRES_USER", "assessment"),
-        "host": os.environ.get("POSTGRES_HOST", "localhost"),
-    }
-    port = os.environ.get("POSTGRES_PORT", "5432")
-    password = os.environ.get("POSTGRES_PASSWORD", "")
-    if port:
-        kwargs["port"] = int(port)
-    if password:
-        kwargs["password"] = password
-    return kwargs
-
-
 def pytest_configure() -> None:
-    with (
-        psycopg.connect(**_pg_kwargs("postgres"), autocommit=True) as conn,
-        contextlib.suppress(pg_errors.DuplicateDatabase),
-    ):
-        conn.execute(f"CREATE DATABASE {TASK_DB}")
+    ensure_database(TASK_DB)
 
 
 @pytest.fixture(scope="session", autouse=True)

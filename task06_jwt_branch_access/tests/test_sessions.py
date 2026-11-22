@@ -1,7 +1,13 @@
 """Login, refresh-rotation and logout/session-separation tests."""
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from rest_framework.test import APIClient
 
 from access import tokens
 from access.models import LoginSession
@@ -104,3 +110,43 @@ def test_spec_login_rejects_unknown_user(api, db) -> None:
     response = api.post("/api/token/", {"username": "nobody", "password": "pw"}, format="json")
     assert response.status_code == 401
     assert get_user_model().objects.filter(username="nobody").exists() is False
+
+
+@pytest.mark.django_db
+def test_spec_refresh_locks_session_row_with_for_update(api, analyst) -> None:
+    pair = login(api)
+    with CaptureQueriesContext(connection) as ctx:
+        response = api.post(REFRESH_URL, {"refresh": pair["refresh"]}, format="json")
+    assert response.status_code == 200
+    assert any("FOR UPDATE" in query["sql"] for query in ctx.captured_queries)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.timeout(25)
+def test_spec_concurrent_refresh_rotation_has_one_winner(api, analyst) -> None:
+    pair = login(api)
+    barrier = threading.Barrier(2)
+    statuses: list[int | None] = [None, None]
+    payloads: list[dict] = [{}, {}]
+
+    def worker(index: int) -> None:
+        worker_api = APIClient()
+        try:
+            barrier.wait(timeout=10)
+            response = worker_api.post(REFRESH_URL, {"refresh": pair["refresh"]}, format="json")
+            statuses[index] = response.status_code
+            if response.status_code == 200:
+                payloads[index] = dict(response.data)
+        finally:
+            connection.close()  # each thread owns a separate PostgreSQL connection
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(worker, range(2)))
+
+    assert sorted(statuses) == [200, 401], statuses
+    winner = next(payload for payload in payloads if payload)
+    sid = tokens.decode_token(pair["access"], "access")["sid"]
+    session = LoginSession.objects.get(session_id=sid)
+    assert session.revoked_at is not None  # the loser's stale-token reuse closed the session
+    replay = api.post(REFRESH_URL, {"refresh": winner["refresh"]}, format="json")
+    assert replay.status_code == 401

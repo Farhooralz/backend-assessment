@@ -3,11 +3,21 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Django's own secret and the JWT signing key are configuration, never source constants.
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-django-key-change-in-production")
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-only-jwt-key-change-in-production")
+
+def _required_secret(name: str) -> str:
+    """Fail closed: a missing key must stop startup, never silently weaken signing."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise ImproperlyConfigured(f"{name} must be set in the environment")
+    return value
+
+
+SECRET_KEY = _required_secret("DJANGO_SECRET_KEY")
+JWT_SECRET_KEY = _required_secret("JWT_SECRET_KEY")
 JWT_ALGORITHM = "HS256"
 
 DEBUG = False
@@ -50,7 +60,7 @@ REDIS_HOST = os.environ.get("REDIS_HOST", "127.0.0.1")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379") or "6379")
 REDIS_DB = 6  # task-isolated database index, per the shared-infrastructure contract
 LOGIN_FAILURE_WINDOW_SECONDS = 60
-LOGIN_FAILURE_LIMIT = 5  # the 6th failure in the window is rejected
+LOGIN_FAILURE_LIMIT = 5  # five failures are tolerated; the 6th in the window is rejected
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["access.authentication.JWTAuthentication"],

@@ -2,6 +2,7 @@
 
 from uuid import uuid4
 
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -37,12 +38,16 @@ def visible_invoices(user):
 
 def login(username: str, password: str) -> dict:
     """Authenticate, enforce the shared throttle, and open a fresh session."""
-    if rate_limit.is_limited(username):
-        raise RateLimited("too many failed login attempts")
     user = authenticate(username=username, password=password)
     if user is None:
-        rate_limit.record_failure(username)
+        # The atomic increment includes this attempt; LIMIT failures are tolerated,
+        # so only the following one is throttled. No racy check-then-record window.
+        count = rate_limit.record_failure(username)
+        if count > settings.LOGIN_FAILURE_LIMIT:
+            raise RateLimited("too many failed login attempts")
         raise InvalidCredentials("invalid username or password")
+    if rate_limit.is_limited(username):
+        raise RateLimited("too many failed login attempts")
     rate_limit.clear_failures(username)
     session = LoginSession.objects.create(user=user, refresh_jti=uuid4().hex)
     sid = str(session.session_id)
@@ -59,6 +64,14 @@ def find_session(sid: str) -> LoginSession | None:
         return None
 
 
+def find_session_for_update(sid: str) -> LoginSession | None:
+    """Lock the session row so two simultaneous rotations cannot both win."""
+    try:
+        return LoginSession.objects.select_for_update().get(session_id=sid)
+    except (LoginSession.DoesNotExist, ValidationError, ValueError):
+        return None
+
+
 def refresh(refresh_token: str) -> dict:
     """Rotate the refresh jti; replay of an old jti revokes the whole session."""
     try:
@@ -67,7 +80,7 @@ def refresh(refresh_token: str) -> dict:
         raise InvalidRefresh("invalid refresh token") from exc
     reused = False
     with transaction.atomic():
-        session = find_session(claims.get("sid", ""))
+        session = find_session_for_update(claims.get("sid", ""))
         if (
             session is None
             or not session.is_live
