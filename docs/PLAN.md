@@ -5,7 +5,10 @@ Source of truth for requirements: **`TEST_SPEC.md`**. If this plan and the spec 
 
 ## Round 2 (authoritative note)
 
-Round 2 followed [`docs/ROUND2_BRIEF.md`](ROUND2_BRIEF.md). `AGENTS.md` and `TEST_SPEC.md` win wherever the older plan text below still mentions CI, deployment, frontend, Swagger, ADRs or reviewer-written tests. Those items were deliberately not built. Live status is in [`STATUS.md`](STATUS.md); the rest of this file is kept as the original design history.
+Round 2 followed [`docs/ROUND2_BRIEF.md`](ROUND2_BRIEF.md). Round 3 added Swagger/OpenAPI for tasks 4
+and 6 only. `AGENTS.md` and `TEST_SPEC.md` win wherever the older plan text below still mentions CI,
+deployment, frontend, ADRs or reviewer-written tests. Those other items were deliberately not built.
+Live status is in [`STATUS.md`](STATUS.md); the rest of this file is kept as the original design history.
  
 ## 0. Working rules
  
@@ -130,7 +133,9 @@ Not built. `AGENTS.md` forbids deployment work and the spec requires local setup
 
 ## 6. Frontend (not built)
 
-Not built. No UI, Swagger page, static host or demo page; all deliverables are local backend code, tests and documentation.
+Not built. No UI, static host or demo page. Swagger/OpenAPI is available only in tasks 4 and 6 as
+required by Round 3; all other deliverables are local backend code, tests and documentation.
+
 ## 7. Open items to confirm
  
 - Is AI assistance allowed for this test? (Ask the company; either way, we build so you can explain everything.)

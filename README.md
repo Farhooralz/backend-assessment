@@ -2,6 +2,15 @@
 
 Ten independent mini-projects. Requirements: [`docs/TEST_SPEC.md`](docs/TEST_SPEC.md). Working rules: [`AGENTS.md`](AGENTS.md). Live progress: [`docs/STATUS.md`](docs/STATUS.md). Original plan: [`docs/PLAN.md`](docs/PLAN.md).
 
+## Round 4
+
+Final bounded pass: the human's Task 6 fix was confirmed (`SERVE_PUBLIC` removed and an anonymous HTTP
+schema test added), Task 4 gained the same HTTP-level schema assertion, all ten source-tree gates were
+re-run with `ruff format --check` before `ruff check`, and the documented run/walkthrough commands were
+executed against real infrastructure. Two test counts changed: T4 83 → 84 and T6 72 → 73. Only bug/doc
+corrections were made; no new features or dependencies. Clean-clone results are reported separately
+in the final report.
+
 ## Round 3
 
 Scoped follow-up for the reviewer: Swagger/OpenAPI and hand-testable demo seeding for **tasks 4 and 6 only**.
@@ -33,14 +42,14 @@ Load the env before any task command: `set -a; . ../.env; set +a` (run from insi
 
 Every task's test command is the same quality gate: `ruff format . && ruff check . && ruff format --check . && pytest -q`.
 
-| # | Folder | Topic | Status (Round 3) | Run command | Test command |
+| # | Folder | Topic | Status (Round 4) | Run command | Test command |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `task01_stream_merge` | Lazy k-way merge of event streams | DONE, frozen — 38 tests | `cd task01_stream_merge && .venv/bin/python measure_memory.py` | `cd task01_stream_merge && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 2 | `task02_pricing_engine` | Pricing engine (OOP/SOLID) | DONE — 39 tests | `cd task02_pricing_engine && .venv/bin/python -c "from decimal import Decimal as D; from pricing import QuoteEngine, QuoteContext, HourMultiplier, PercentDiscount, FixedCredit; print(QuoteEngine([HourMultiplier(D('1.5')), PercentDiscount(D('0.10')), FixedCredit(D('200'))]).quote(D('1000'), QuoteContext(10)))"` | `cd task02_pricing_engine && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 3 | `task03_court_report` | Financial report per court (ORM/PostgreSQL) | DONE — 30 tests | `cd task03_court_report && set -a; . ../.env; set +a; DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django ensure_db && DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django migrate --noinput` | `cd task03_court_report && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 4 | `task04_goods_transfer_api` | Goods transfer API (DRF) | DONE — 83 tests | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))')"; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py seed_demo && .venv/bin/python manage.py runserver` | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 4 | `task04_goods_transfer_api` | Goods transfer API (DRF) | DONE — 84 tests | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))')"; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py seed_demo && .venv/bin/python manage.py runserver` | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 5 | `task05_last_seat_reservation` | Last-seat reservation (concurrency) | DONE — 24 tests | `cd task05_last_seat_reservation && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate` | `cd task05_last_seat_reservation && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 6 | `task06_jwt_branch_access` | JWT + branch authorization | DONE — 72 tests | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" JWT_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" DEMO_PASSWORD='<choose-a-demo-password>'; .venv/bin/python -m django ensure_db && .venv/bin/python -m django migrate && .venv/bin/python -m django seed_demo && .venv/bin/python -m django runserver 127.0.0.1:8000 --noreload` | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 6 | `task06_jwt_branch_access` | JWT + branch authorization | DONE — 73 tests | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" JWT_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" DEMO_PASSWORD='<choose-a-demo-password>'; .venv/bin/python -m django ensure_db && .venv/bin/python -m django migrate && .venv/bin/python -m django seed_demo && .venv/bin/python -m django runserver 127.0.0.1:8000 --noreload` | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 7 | `task07_debtors_refactor` | Debtors report refactor | DONE — 39 tests (28 passed, 11 xfailed) | `cd task07_debtors_refactor && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py check` | `cd task07_debtors_refactor && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 8 | `task08_receipt_outbox` | Reliable receipt dispatch (Celery/Redis) | DONE — 47 tests | `cd task08_receipt_outbox && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/celery -A celery_app worker -l info` | `cd task08_receipt_outbox && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 9 | `task09_cancellation_tests` | Cancellation policy tests (pytest) | DONE — 30 tests | `cd task09_cancellation_tests && set -a; . ../.env; set +a; .venv/bin/python -m cancelapp.db_setup && DJANGO_SETTINGS_MODULE=cancelapp.settings .venv/bin/python -c "import django; django.setup(); from datetime import timedelta; from cancelapp.services import compute_refund; print(compute_refund(101, timedelta(hours=24)))"` | `cd task09_cancellation_tests && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
@@ -84,9 +93,29 @@ tree. Ruff format, check and format-check were clean for every task; the file co
 | 9 | clean, 17 files | `30 passed in 0.31s` | 30 collected; `TOTAL 97 stmts, 0 miss, 100%` |
 | 10 | clean, 6 files | `75 passed in 0.14s` | 75 collected; `check_doc.py` OK |
 
-Round-1 clean-clone evidence is recorded in [`docs/STATUS.md`](docs/STATUS.md); neither Round 2 nor
-Round 3 re-ran a fresh clone, so no new clean-clone claim is made here.
+## Round 4 gate verification (source tree)
+
+Final orchestrator sweep after every fix, with `../.env` loaded. Each row ran
+`ruff format --check . && ruff check . && pytest -q` in that order; no `ruff format` was run first.
+Test counts are confirmed with the collect-only command in each folder.
+
+| Task | Ruff | Tests | Extra |
+| --- | --- | --- | --- |
+| 1 | clean, 6 files | `38 passed in 4.15s` | 38 collected; `TOTAL 85 stmts, 0 miss, 100%` |
+| 2 | clean, 10 files | `39 passed in 0.02s` | 39 collected; `TOTAL 145 stmts, 0 miss, 100%` |
+| 3 | clean, 20 files | `30 passed in 9.93s` | 30 collected |
+| 4 | clean, 30 files | `84 passed in 37.70s` | 84 collected; live schema paths verified |
+| 5 | clean, 19 files | `24 passed in 0.57s` | 24 collected |
+| 6 | clean, 36 files | `73 passed in 22.83s` | 73 collected; live schema paths verified |
+| 7 | clean, 18 files | `28 passed, 11 xfailed in 0.39s` | 39 collected |
+| 8 | clean, 20 files | `47 passed in 5.07s` | 47 collected |
+| 9 | clean, 17 files | `30 passed in 0.33s` | 30 collected; `TOTAL 97 stmts, 0 miss, 100%` |
+| 10 | clean, 6 files | `75 passed in 0.14s` | 75 collected; `check_doc.py` OK |
+
+Flakiness loops were all green: T5 10/10, T8 10/10, T9 5/5 and T6 rate/sessions 3/3.
+Round-1 clean-clone evidence is recorded in [`docs/STATUS.md`](docs/STATUS.md); Round 4 clean-clone
+results are reported separately in the final report.
 
 ## AI assistance
 
-AI assistance was used. Tests were written from the spec first, run in a red phase, then the smallest implementation was added to turn them green. Every implementation was mutation-checked with deliberate defects and the results recorded in the task README. Every task README lists its assumptions and unfinished parts. Round 3 followed the same test-first, mutation-checked, evidence-based process for the two scoped tasks. Task 1 was frozen by `AGENTS.md`; its two stricter input validations were added only because the repository owner explicitly requested them in Round 1.
+AI assistance was used. Tests were written from the spec first, run in a red phase, then the smallest implementation was added to turn them green. Every implementation was mutation-checked with deliberate defects and the results recorded in the task README. Every task README lists its assumptions and unfinished parts. Rounds 3 and 4 followed the same test-first, mutation-checked, evidence-based process for the scoped tasks. Task 1 was frozen by `AGENTS.md`; its two stricter input validations were added only because the repository owner explicitly requested them in Round 1.

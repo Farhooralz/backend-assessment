@@ -1,13 +1,54 @@
 # Task status
 
-Last updated: 2026-11-24 - ROUND 3 COMPLETE. Round 2 was complete and pushed; the owner requested a
-small scoped follow-up: Swagger/OpenAPI plus hand-testable seed data for tasks 4 and 6 only. `AGENTS.md`
-now records that exception. Both task subagents finished their red-first, mutation-checked work; the
-orchestrator re-ran every gate on the final tree and all ten tasks are green.
+Last updated: 2026-11-24 - ROUND 4 COMPLETE. The final bounded pass is done: all ten source-tree gates
+are green with `ruff format --check` first, the human's Task 6 fix is confirmed, one Task 6 style defect
+was fixed red-first, and T4/T6 test counts changed to 84 and 73. Clean-clone results are in the final
+report.
 
-Infrastructure note: `docker compose up -d` failed with "permission denied". The no-Docker fallback `scripts/local_infra.sh` is now committed and was verified from a fresh clone: it bootstrapped its own PostgreSQL 16.2 (unix socket) and Redis 6.2, wrote the git-ignored `.env`, and a real `psycopg` query plus `redis.ping()` both succeeded. No `.env` values were printed or committed. Python 3.12.16 (uv-managed) was used for every gate; no Python 3.14 result is claimed.
+Infrastructure note: in Round 4, `cp -n .env.example .env && docker compose up -d` failed with
+`error while interpolating services.postgres.environment.POSTGRES_PASSWORD: required variable POSTGRES_PASSWORD is missing a value: set POSTGRES_PASSWORD in .env`.
+The committed fallback `scripts/local_infra.sh start` then reported `postgres: up, socket dir .../.local-infra/pgdata`
+and `redis: up on 127.0.0.1:6379`. A real query printed `postgres: PostgreSQL 16.2 on x86_64-pc-linux-gnu`
+and `redis ping: True`. No `.env` values were printed or committed. Python 3.12.16 (uv-managed) was used
+for every gate; no Python 3.14 result is claimed.
 
-## Round 3 (final)
+## Round 4 (final bounded pass)
+
+- Step 0: the human's T6 change is present: no `SERVE_PUBLIC` in `jwtbranch/settings.py`, and
+  `tests/test_schema_docs.py::test_spec_served_schema_lists_every_endpoint_to_anonymous_visitors`
+  issues an anonymous HTTP `GET /api/schema/?format=json` and checks all `EXPECTED_PATHS`, including
+  both invoice paths. T4 gained the equivalent HTTP-level test
+  `test_spec_served_schema_lists_every_transfer_path_to_anonymous_http_clients`; it passed green
+  (`1 passed in 0.29s`), so no T4 implementation change was needed.
+- Bug found and fixed (T6): the human-added test had import order and blank-line violations. Red proof:
+  `1 file would be reformatted, 35 files already formatted` and `Found 1 error. [*] 1 fixable with --fix.`
+  Fixed by ordering `json` before `pytest`/`yaml` and adding the blank line before the new test; green:
+  `36 files already formatted`, `All checks passed!`, `73 passed in 21.61s` (source sweep later:
+  `73 passed in 22.41s`). Mutation spot-check of the owner fix: re-adding `"SERVE_PUBLIC": False`
+  made `tests/test_schema_docs.py::test_spec_served_schema_lists_every_endpoint_to_anonymous_visitors`
+  fail with `Extra items in the right set: '/api/invoices/'` and `'/api/invoices/{id}/'`; reverted.
+- Flakiness loops: T5 10/10 green (`24 passed`), T8 10/10 green (`47 passed`), T9 5/5 green
+  (`30 passed`), T6 `tests/test_rate_limit.py tests/test_sessions.py` 3/3 green (`29 passed`).
+- Run/walkthrough checks: T4 and T6 README bash blocks were extracted and executed against a live
+  `runserver`. T4 statuses were 201/200/403/200/409/400/201/404; T6 statuses were 200/200/401/200/
+  200/200/200/404/200/401/200/204/401, all matching the README. T3, T5, T7, T8 and T9 "Run" sections
+  were executed from fresh Python 3.12 venvs; all commands succeeded, including T8 worker `ready` and
+  beat `Starting...`. The generated `celerybeat-schedule.db` was removed afterwards.
+- Live Swagger checks: T4 and T6 both returned `docs 200`, `schema 200`, `protected 401`, and their
+  anonymous `?format=json` schemas listed every expected path.
+- Stale-doc corrections: `AGENTS.md` orphaned "extra features" line and Redis 7 wording, plus
+  `docs/PLAN.md` claims that no Swagger existed. Test counts were updated in both task READMEs, root
+  `README.md` and this file. Hygiene: `git status --short` showed only intended edits; the untracked
+  T8 celery beat DB was deleted; `git ls-files` contains `.env.example` but no `.env`, `.venv`,
+  `.local-infra`, `.infra-venv` or `*.sqlite3`; tracked secrets grep found only documented placeholders
+  and generated-at-runtime commands.
+- Final source sweep (all gates green, `ruff format --check` run first): T1 `38 passed in 4.15s`,
+  T2 `39 passed in 0.02s`, T3 `30 passed in 9.93s`, T4 `84 passed in 37.70s`, T5 `24 passed in 0.57s`,
+  T6 `73 passed in 22.83s`, T7 `28 passed, 11 xfailed in 0.39s`, T8 `47 passed in 5.07s`,
+  T9 `30 passed in 0.33s`, T10 `75 passed in 0.14s`. Coverage remained 100% for T1/T2/T9;
+  T10 `check_doc.py` OK.
+
+## Round 3 (completed)
 
 - Scope: only `task04_goods_transfer_api` and `task06_jwt_branch_access` changed. Swagger/OpenAPI and demo
   seeding were added there; all other tasks were untouched except the final orchestrator gate sweep.
@@ -42,18 +83,18 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 - T9: PostgreSQL + `select_for_update` cancel; concurrent-cancel test; `ensure_db`; mutation checker updated.
 - T10: partial exclusion constraint with `btree_gist`, corrected ERD, bounded staleness, sizing math, multiple SLOs, stronger doc checks.
 
-| Task | Round 1 | Round 2 (fix) | Round 3 | Status |
-| --- | --- | --- | --- | --- |
-| 1 | DONE | none, frozen | none, frozen | DONE (fuzz-checked externally) |
-| 2 | DONE | none | none | DONE |
-| 3 | DONE | P0 bug + tests + seed + EXPLAIN | none | DONE (round 2) |
-| 4 | DONE | P1 tests/README/settings | Swagger + demo seed | DONE (round 3) |
-| 5 | DONE | P1 tests | none | DONE (round 2) |
-| 6 | DONE | P1 validation/logout/tests | Swagger + demo seed | DONE (round 3) |
-| 7 | DONE | P2 legacy-vs-new proof | none | DONE (round 2) |
-| 8 | DONE | P0 bug + P1 tests/observability | none | DONE (round 2) |
-| 9 | DONE | P0 test rewrite | none | DONE (round 2) |
-| 10 | DONE | P1 design fixes | none | DONE (round 2) |
+| Task | Round 1 | Round 2 (fix) | Round 3 | Round 4 | Status |
+| --- | --- | --- | --- | --- | --- |
+| 1 | DONE | none, frozen | none, frozen | none, frozen | DONE (fuzz-checked externally) |
+| 2 | DONE | none | none | none | DONE |
+| 3 | DONE | P0 bug + tests + seed + EXPLAIN | none | Run section check | DONE (round 2) |
+| 4 | DONE | P1 tests/README/settings | Swagger + demo seed | HTTP schema test | DONE (round 4) |
+| 5 | DONE | P1 tests | none | Run section check | DONE (round 2) |
+| 6 | DONE | P1 validation/logout/tests | Swagger + demo seed | Owner fix + style fix + test | DONE (round 4) |
+| 7 | DONE | P2 legacy-vs-new proof | none | Run section check | DONE (round 2) |
+| 8 | DONE | P0 bug + P1 tests/observability | none | Run section check | DONE (round 2) |
+| 9 | DONE | P0 test rewrite | none | Run section check | DONE (round 2) |
+| 10 | DONE | P1 design fixes | none | none | DONE (round 2) |
 
 ### Round 2 progress (chronological)
 

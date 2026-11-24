@@ -7,8 +7,9 @@ pushes. This file overrides `docs/PLAN.md` and `docs/ENGINEERING_PLAN.md` wherev
 
 ## Goal and scope (finish everything in ONE day)
 - Requirements: `docs/TEST_SPEC.md` (the spec always wins). Per-task approach hints: `docs/PLAN.md` section 2.
-- Keep it simple. **Do NOT build**: CI workflows, deployment, frontend, ADRs, DDD layers. Exception: Swagger/OpenAPI is REQUIRED for tasks 4 and 6 only (Round 3).
-  extra features. Plain functions/services, small modules, the smallest design that satisfies the spec.
+- Keep it simple. **Do NOT build**: CI workflows, deployment, frontend, ADRs, DDD layers, extra features.
+  Exception: Swagger/OpenAPI is REQUIRED for tasks 4 and 6 only (Round 3).
+  Plain functions/services, small modules, the smallest design that satisfies the spec.
 - Task 1 is DONE and frozen. Do not touch `task01_stream_merge/`.
 - Progress lives in `docs/STATUS.md`. Update it after every task. It is how work resumes after a crash.
 
@@ -32,7 +33,8 @@ pushes. This file overrides `docs/PLAN.md` and `docs/ENGINEERING_PLAN.md` wherev
    Never commit `.env`, `.venv`, `*.sqlite3`, `__pycache__`.
 6. **No `float` for money.** Use `Decimal` or integer rial. Datetimes are timezone-aware UTC.
 7. Pin exact dependency versions in each task's `requirements.txt` (use `pip index versions <pkg>` or the
-   installed version after `pip install`). Django 5.2.x, DRF, PostgreSQL 16, Celery + Redis 7 where needed.
+   installed version after `pip install`). Django 5.2.x, DRF, PostgreSQL 16, Celery + Redis where needed:
+   Redis 7 when configured, but only Redis 6.2-compatible commands in the committed fallback.
 8. **3 failures in a row** on the same problem: stop that task, write `BLOCKED` plus the reason and the last
    error in `docs/STATUS.md` (orchestrator does this), and move on to the next task.
 9. Never `git push --force`, `git reset --hard`, `git rebase`, or delete branches.
