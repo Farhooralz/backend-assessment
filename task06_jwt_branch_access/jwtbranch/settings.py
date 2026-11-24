@@ -33,10 +33,19 @@ INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "rest_framework",
+    "drf_spectacular",
     "access",
 ]
 
 MIDDLEWARE: list[str] = []
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "APP_DIRS": True,
+        "OPTIONS": {"context_processors": []},
+    }
+]
 
 ROOT_URLCONF = "jwtbranch.urls"
 WSGI_APPLICATION = "jwtbranch.wsgi.application"
@@ -71,5 +80,17 @@ LOGIN_FAILURE_LIMIT = 5  # five failures are tolerated; the 6th in the window is
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["access.authentication.JWTAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "UNAUTHENTICATED_USER": None,
+}
+
+# The docs views keep drf-spectacular's public defaults; every API view keeps the
+# REST_FRAMEWORK defaults above. Authentication is left on the docs view solely so
+# the Swagger UI shows the Bearer "Authorize" button.
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Branch invoice API",
+    "DESCRIPTION": "JWT-authenticated, branch-scoped invoice access.",
+    "VERSION": "1.0.0",
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "SERVE_PUBLIC": False,
 }

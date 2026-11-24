@@ -6,7 +6,8 @@ whole session; logout closes only that session, using either the verified access
 token in the body. Every list/detail query is scoped to the caller's *currently active* branch
 memberships (or, for customers, to their own invoices), so the original detail-view IDOR is closed.
 Failed logins are counted by one atomic Redis Lua script shared by all workers, and both signing
-keys fail closed when not supplied by the environment.
+keys fail closed when not supplied by the environment. An OpenAPI document is served at
+`/api/schema/` and a public Swagger UI at `/api/docs/`, so the API can be tried by hand.
 
 ## Run
 
@@ -33,6 +34,8 @@ Endpoints: `POST /api/token/` (login), `POST /api/token/refresh/`, `POST /api/to
 `GET /api/invoices/`, `GET /api/invoices/<id>/`. Send `Authorization: Bearer <access>` on the
 protected routes. Logout also accepts `{"refresh": "<refresh token>"}` when the access token has
 expired. Login, refresh and logout all return 400 for a non-object body or a non-string field.
+`GET /api/schema/` (OpenAPI YAML/JSON) and `GET /api/docs/` (Swagger UI) are public; all other
+routes keep the authentication and permissions above. See **Try it** below.
 
 ## Test
 
@@ -53,19 +56,97 @@ Full quality gate (the exact command run before reporting):
 .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && ( set -a; . ../.env; set +a; .venv/bin/python -m pytest -q )
 ```
 
-Measured result from the final gate: `33 files left unchanged`, `All checks passed!`,
-`33 files already formatted`, `60 passed`. Collect count from
-`.venv/bin/python -m pytest --collect-only -q | tail -1`: `60 tests collected`.
-Per-file collect counts: access 12, db setup 2, input validation 3, logging 2, rate limit 12,
-sessions 17, settings 6, tokens 6 (total 60). Versions pinned in `requirements.txt` and
-installed: Django 5.2.19, DRF 3.16.1, PyJWT 2.15.1, psycopg[binary] 3.2.10, redis 6.4.0,
-pytest 8.4.2, pytest-django 4.11.1, pytest-timeout 2.4.0, pytest-cov 7.1.0, ruff 0.17.6.
+Measured result from the final gate: `36 files left unchanged`, `All checks passed!`,
+`36 files already formatted`, `72 passed`. Collect count from
+`.venv/bin/python -m pytest --collect-only -q | tail -1`: `72 tests collected`.
+Versions pinned in `requirements.txt` and installed: Django 5.2.19, DRF 3.16.1,
+drf-spectacular 0.30.0, PyJWT 2.15.1, psycopg[binary] 3.2.10, redis 6.4.0, pytest 8.4.2,
+pytest-django 4.11.1, pytest-timeout 2.4.0, pytest-cov 7.1.0, ruff 0.17.6.
 
 The root `conftest.py` calls `access.db_utils.ensure_database()` (idempotent, env-driven) before
 pytest-django builds `test_task06`; the same function backs `manage.py ensure_db`. Redis is isolated
 to DB index `/6` and flushed per test. Only Redis 6.2-era commands are used: the limiter issues a
 single `EVAL` (with `INCR`/`EXPIRE` inside the script), the rest uses `GET`, `DEL` and `FLUSHDB`;
 there is no separate `INCR`/`EXPIRE` pair in application code.
+
+## Try it
+
+From the repository root, in one shell (keep this shell open: `DEMO_PASSWORD` is used by the curl
+walkthrough below and by the seeded users):
+
+```bash
+cd task06_jwt_branch_access
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+set -a; . ../.env; set +a
+export DJANGO_SETTINGS_MODULE=jwtbranch.settings
+export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')"
+export JWT_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')"
+export DEMO_PASSWORD='choose-a-demo-password'
+.venv/bin/python -m django ensure_db
+.venv/bin/python -m django migrate --noinput
+.venv/bin/python -m django seed_demo
+.venv/bin/python -m django runserver 127.0.0.1:8000 --noreload
+```
+
+`seed_demo` is repeatable and prints `demo usernames: demo_analyst, demo_customer`. It uses
+`$DEMO_PASSWORD` when set; without it, the command generates a password and prints it once. No
+password is stored in the repository or printed when `DEMO_PASSWORD` is set.
+
+Open **http://127.0.0.1:8000/api/docs/** (Swagger UI; the OpenAPI document is at
+http://127.0.0.1:8000/api/schema/). Both pages load without login. To use the UI, log in via
+`POST /api/token/`, then paste the returned `access` value into the Bearer **Authorize** field
+(Swagger UI adds the `Bearer` prefix itself).
+
+Copy-paste walkthrough in a second shell, still with `DEMO_PASSWORD` exported:
+
+```bash
+BASE=http://127.0.0.1:8000
+PY=.venv/bin/python
+curl -s -o /dev/null -w 'docs %{http_code}\n' $BASE/api/docs/                    # 200
+curl -s -o /dev/null -w 'schema %{http_code}\n' $BASE/api/schema/                # 200
+curl -s -o /dev/null -w 'no auth %{http_code}\n' $BASE/api/invoices/             # 401
+
+curl -s -o /tmp/task06-login.json -w 'login %{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"demo_analyst\",\"password\":\"$DEMO_PASSWORD\"}" $BASE/api/token/  # 200
+ACCESS=$($PY -c 'import json;print(json.load(open("/tmp/task06-login.json"))["access"])')
+REFRESH=$($PY -c 'import json;print(json.load(open("/tmp/task06-login.json"))["refresh"])')
+curl -s -o /tmp/task06-list.json -w 'analyst list %{http_code}\n' \
+  -H "Authorization: Bearer $ACCESS" $BASE/api/invoices/                        # 200: DEMO-A-1 and DEMO-B-1
+
+curl -s -o /tmp/task06-customer.json -w 'customer login %{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"demo_customer\",\"password\":\"$DEMO_PASSWORD\"}" $BASE/api/token/  # 200
+CACCESS=$($PY -c 'import json;print(json.load(open("/tmp/task06-customer.json"))["access"])')
+curl -s -o /tmp/task06-owned.json -w 'customer list %{http_code}\n' \
+  -H "Authorization: Bearer $CACCESS" $BASE/api/invoices/                       # 200: DEMO-CUST-1 only
+OUT_ID=$($PY -c 'import json;print(json.load(open("/tmp/task06-owned.json"))[0]["id"])')
+curl -s -o /dev/null -w 'outside detail %{http_code}\n' \
+  -H "Authorization: Bearer $ACCESS" $BASE/api/invoices/$OUT_ID/                # 404
+
+curl -s -o /tmp/task06-rotated.json -w 'refresh %{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -d "{\"refresh\":\"$REFRESH\"}" $BASE/api/token/refresh/                      # 200: new pair
+curl -s -o /dev/null -w 'old refresh %{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -d "{\"refresh\":\"$REFRESH\"}" $BASE/api/token/refresh/                      # 401: reuse kills session
+
+curl -s -o /tmp/task06-fresh.json -w 're-login %{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"demo_analyst\",\"password\":\"$DEMO_PASSWORD\"}" $BASE/api/token/  # 200
+FRESH=$($PY -c 'import json;print(json.load(open("/tmp/task06-fresh.json"))["access"])')
+curl -s -o /dev/null -w 'logout %{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' -H "Authorization: Bearer $FRESH" \
+  -d '{}' $BASE/api/token/logout/                                               # 204
+curl -s -o /dev/null -w 'after logout %{http_code}\n' \
+  -H "Authorization: Bearer $FRESH" $BASE/api/invoices/                         # 401: session closed
+rm -f /tmp/task06-*.json
+```
+
+The old refresh token is rejected with 401 and, as a theft-detection rule, revokes that whole
+session; that is why the walkthrough logs in again before testing logout. Status codes above were
+checked against a running `runserver` (see Round 3).
 
 ## Library choice
 
@@ -101,6 +182,11 @@ wall-clock time inside the library.
 | Logout uses verified claims once | `test_spec_logout_does_not_decode_access_token_twice` |
 | **Fail-closed configuration** | `test_spec_settings_fail_closed_without_django_secret`, `test_spec_settings_fail_closed_without_jwt_secret`, `test_spec_settings_fail_closed_on_blank_secret`, `test_spec_settings_use_environment_secrets`, `test_spec_settings_reject_short_jwt_secret`, `test_spec_allowed_hosts_comes_from_environment` |
 | **Reproducible bootstrap** | `test_spec_ensure_database_is_idempotent`, `test_spec_ensure_db_management_command_is_idempotent` |
+| **Public docs, private API** | `test_spec_docs_page_is_reachable_without_login`, `test_spec_protected_endpoint_still_requires_authentication` |
+| **Warning-free OpenAPI** | `test_spec_spectacular_validate_reports_no_errors_or_warnings`, `test_spec_openapi_document_lists_every_endpoint`, `test_spec_schema_documents_token_request_and_response_bodies` |
+| **Bearer in Swagger Authorize** | `test_spec_schema_advertises_bearer_access_token` |
+| **Demo seed** | `test_spec_seed_demo_is_idempotent`, `test_spec_seed_demo_creates_analyst_in_two_branches_and_customer`, `test_spec_seed_demo_uses_env_password`, `test_spec_seed_demo_generated_password_is_printed_once`, `test_spec_seed_demo_prints_demo_usernames` |
+| **Walkthrough contract** | `test_spec_seeded_demo_walkthrough_covers_login_scope_refresh_and_logout` |
 
 Measured constants: access TTL 300 s, refresh TTL 604800 s, failure window 60 s, failure limit 5
 (five failures tolerated, the 6th attempt rejected), minimum JWT secret 32 bytes. Redis key shape:
@@ -205,6 +291,85 @@ Each mutation run reported exactly `1 failed` from `pytest -q <test>`.
 
 All three were reverted; no mutation marker remains in the source.
 
+## Round 3
+
+### Red-first proof
+
+With `drf-spectacular==0.30.0` installed in the venv but settings, URLs, views and management
+commands still at their Round-2 state, the new tests were run first:
+
+```bash
+set -a; . ../.env; set +a; .venv/bin/python -m pytest -q tests/test_schema_docs.py tests/test_seed_demo.py
+```
+
+Result: `11 failed, 1 passed`. Exact failing lines:
+
+| Requirement | Test (`file::test_name`) | Failing line |
+|---|---|---|
+| Idempotent demo seed (6 tests) | `tests/test_seed_demo.py::test_spec_seed_demo_is_idempotent`, `::test_spec_seed_demo_creates_analyst_in_two_branches_and_customer`, `::test_spec_seed_demo_uses_env_password`, `::test_spec_seed_demo_generated_password_is_printed_once`, `::test_spec_seed_demo_prints_demo_usernames`, `::test_spec_seeded_demo_walkthrough_covers_login_scope_refresh_and_logout` | `django.core.management.base.CommandError: Unknown command: 'seed_demo'` |
+| Warning-free schema | `tests/test_schema_docs.py::test_spec_spectacular_validate_reports_no_errors_or_warnings` | `django.core.management.base.CommandError: Unknown command: 'spectacular'` |
+| Public Swagger UI | `tests/test_schema_docs.py::test_spec_docs_page_is_reachable_without_login` | `assert 404 == 200` |
+| Every endpoint documented | `tests/test_schema_docs.py::test_spec_openapi_document_lists_every_endpoint` | `AssertionError: Incompatible AutoSchema used on View <class 'access.views.InvoiceViewSet'>. Is DRF's DEFAULT_SCHEMA_CLASS pointing to "drf_spectacular.openapi.AutoSchema" or any other drf-spectacular compatible AutoSchema?` |
+| Token request/response bodies | `tests/test_schema_docs.py::test_spec_schema_documents_token_request_and_response_bodies` | same `Incompatible AutoSchema` assertion |
+| Bearer security scheme | `tests/test_schema_docs.py::test_spec_schema_advertises_bearer_access_token` | same `Incompatible AutoSchema` assertion |
+
+### Not reproduced
+
+`tests/test_schema_docs.py::test_spec_protected_endpoint_still_requires_authentication` was the
+`1 passed`: an unauthenticated `GET /api/invoices/` already returned 401 before any change and
+still returns 401. It is kept as a regression guard, not presented as a fix. No existing endpoint
+permission or authentication class was changed.
+
+Two test-harness mistakes were found after the first green run and corrected in the tests, not in
+the API: `manage.py spectacular` accepts `--format=openapi` (YAML) rather than `yaml`, and an old
+refresh-token replay deliberately revokes the whole session, so the logout step uses a new login.
+Both are recorded as ⚠ assumptions below.
+
+### Fixes applied
+
+- `requirements.txt`: pinned `drf-spectacular==0.30.0`; `jwtbranch/settings.py` registers the app,
+  sets `DEFAULT_SCHEMA_CLASS`, adds a Django template backend for Swagger UI, and marks the two
+  docs views `AllowAny` only.
+- `jwtbranch/urls.py`: `GET /api/schema/` and `GET /api/docs/`.
+- `access/serializers.py` + `access/views.py`: request/response serializers and `@extend_schema`
+  on login, refresh and logout, removing the "unable to guess serializer" warnings. Round 2 had
+  no request serializer classes (only `valid_body()`), so small ones were added for the documented
+  bodies; runtime validation still uses the same `valid_body()` checks.
+- `access/authentication.py`: `JWTSecurityScheme` describes the existing `JWTAuthentication` as
+  HTTP Bearer/JWT for Swagger's Authorize button.
+- `access/management/commands/seed_demo.py`: idempotent demo data (two analyst branches, a
+  customer whose own invoice sits outside both branches, and invoices for list/detail/404 flows).
+  `DEMO_PASSWORD` is read from the environment; when absent a random password is generated and
+  printed once. The usernames are always printed; a configured password is never printed.
+
+### Verified numbers and smoke test
+
+- With `DJANGO_SETTINGS_MODULE=jwtbranch.settings` and the two keys exported,
+  `set -a; . ../.env; set +a; .venv/bin/python -m django spectacular --validate --fail-on-warn
+  --file /tmp/opencode/task06-schema.yaml; echo "exit=$?"; wc -c /tmp/opencode/task06-schema.yaml;
+  grep -E '^  /api' /tmp/opencode/task06-schema.yaml` printed `exit=0`, `7334 /tmp/opencode/task06-schema.yaml`
+  and no warnings. Paths in that document: `/api/invoices/`,
+  `/api/invoices/{id}/`, `/api/schema/`, `/api/token/`, `/api/token/logout/`, `/api/token/refresh/`.
+- `.venv/bin/python -m pytest --collect-only -q | tail -1`: `72 tests collected`.
+- Actual `curl` run against `runserver 127.0.0.1:8000 --noreload`:
+  `docs=200 schema=200 invoices_noauth=401`, `login=200`, `analyst_list=200`, `customer_list=200`,
+  `outside_detail=404`, `refresh=200`, `old_refresh_replay=401`, `fresh_login=200`, `logout=204`,
+  `after_logout=401`.
+
+### Round-3 mutation spot-check
+
+Four behaviour-changing breaks, applied one at a time and reverted. Every mutation run reported
+exactly `1 failed`:
+
+| Mutation (behaviour changed) | Failing test (`file::test_name`) | Observed line |
+|---|---|---|
+| Drop `@extend_schema` from `LoginView` (schema loses its request/response contract) | `tests/test_schema_docs.py::test_spec_spectacular_validate_reports_no_errors_or_warnings` | `SchemaGenerationError: Failing as requested due to warnings` |
+| Require `IsAuthenticated` on the Swagger view | `tests/test_schema_docs.py::test_spec_docs_page_is_reachable_without_login` | `assert 401 == 200` |
+| Drop `Q(customer=user)` from `services.visible_invoices()` | `tests/test_seed_demo.py::test_spec_seeded_demo_walkthrough_covers_login_scope_refresh_and_logout` | `assert [] == ['DEMO-CUST-1']` |
+| Rename the Bearer security scheme so Swagger cannot find it | `tests/test_schema_docs.py::test_spec_schema_advertises_bearer_access_token` | `KeyError: 'bearerAuth'` |
+
+No mutation marker remains in the source.
+
 ## Assumptions
 
 - An analyst may read **all** invoices of their active analyst branches, including invoices owned by
@@ -233,10 +398,21 @@ All three were reverted; no mutation marker remains in the source.
   value. Any genuine refresh token for that session can close it; logout is idempotent, so a token
   for an already-revoked session is a no-op 204.
 - PostgreSQL 16 and Redis 6.2 are the target infrastructure; `EVAL` is available in Redis 6.2.
+- The Swagger UI uses drf-spectacular's default CDN distribution of the Swagger assets, so the
+  browser needs network access to that CDN; the OpenAPI document itself is served locally.
+- The two docs views use `AllowAny` but keep the JWT authentication class so Swagger displays the
+  Bearer Authorize control. No API view's authentication or permission classes were changed.
+- `seed_demo` only sets passwords when it creates demo users or when `DEMO_PASSWORD` is set. With
+  no env var and existing demo users it leaves their stored hashes alone and prints nothing extra,
+  which is what makes the generated password appear only once across repeat runs.
+- ⚠ **Refresh replay and logout:** reusing a rotated refresh token returns 401 *and* revokes the
+  whole session (the specified theft-detection rule). A following logout with the rotated access
+  token is therefore correctly 401; the walkthrough logs in again to demonstrate a 204 logout.
 
 ## Unfinished parts
 
 Nothing required by the spec is missing. Out of scope and not implemented: pagination/filters on the
 invoice list, a token-introspection endpoint, password reset, HTTPS enforcement, and production
-secret storage (keys must be injected from the deployment's secret manager). There is no admin UI
-and no Swagger/OpenAPI documentation, as required by the project rules.
+secret storage (keys must be injected from the deployment's secret manager). There is no admin UI.
+Swagger/OpenAPI documentation is available at `/api/docs/` and `/api/schema/`; both are public,
+while every token and invoice route keeps its existing authentication and permissions.

@@ -1,5 +1,6 @@
 """Thin HTTP layer; all authorization and token rules live in services."""
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -9,7 +10,15 @@ from rest_framework.viewsets import ReadOnlyModelViewSet
 
 from access import services, tokens
 from access.authentication import JWTAuthentication
-from access.serializers import InvoiceSerializer, valid_body
+from access.serializers import (
+    DetailSerializer,
+    InvoiceSerializer,
+    LoginRequestSerializer,
+    LogoutRequestSerializer,
+    RefreshRequestSerializer,
+    TokenPairSerializer,
+    valid_body,
+)
 
 _BAD_BODY = {"detail": "invalid request body"}
 
@@ -18,6 +27,15 @@ class LoginView(APIView):
     authentication_classes: list = []
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=LoginRequestSerializer,
+        responses={
+            200: TokenPairSerializer,
+            400: DetailSerializer,
+            401: DetailSerializer,
+            429: DetailSerializer,
+        },
+    )
     def post(self, request) -> Response:
         body = valid_body(request.data, "username", "password")
         if body is None:
@@ -35,6 +53,10 @@ class RefreshView(APIView):
     authentication_classes: list = []
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        request=RefreshRequestSerializer,
+        responses={200: TokenPairSerializer, 400: DetailSerializer, 401: DetailSerializer},
+    )
     def post(self, request) -> Response:
         body = valid_body(request.data, "refresh")
         if body is None:
@@ -59,6 +81,10 @@ class LogoutView(APIView):
         # a header; logout has none of its own, so advertise Bearer explicitly.
         return "Bearer"
 
+    @extend_schema(
+        request=LogoutRequestSerializer,
+        responses={204: None, 400: DetailSerializer, 401: DetailSerializer},
+    )
     def post(self, request) -> Response:
         body = valid_body(request.data)
         if body is None:

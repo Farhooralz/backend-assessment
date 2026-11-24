@@ -1,5 +1,6 @@
 """DRF authentication: verify the access JWT and that its session is still live."""
 
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 
@@ -33,3 +34,14 @@ class JWTAuthentication(BaseAuthentication):
 
     def authenticate_header(self, request) -> str:
         return "Bearer"
+
+
+class JWTSecurityScheme(OpenApiAuthenticationExtension):
+    """Describe the live Bearer token so Swagger's Authorize button sends it."""
+
+    target_class = "access.authentication.JWTAuthentication"
+    name = "bearerAuth"
+    priority = 1
+
+    def get_security_definition(self, auto_schema) -> dict:
+        return {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}

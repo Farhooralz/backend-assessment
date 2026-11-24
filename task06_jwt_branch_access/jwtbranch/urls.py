@@ -1,6 +1,7 @@
 """URL configuration for the token endpoints and the invoice viewset."""
 
 from django.urls import include, path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from access import views
@@ -13,4 +14,6 @@ urlpatterns = [
     path("api/token/refresh/", views.RefreshView.as_view(), name="token-refresh"),
     path("api/token/logout/", views.LogoutView.as_view(), name="token-logout"),
     path("api/", include(router.urls)),
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
 ]
