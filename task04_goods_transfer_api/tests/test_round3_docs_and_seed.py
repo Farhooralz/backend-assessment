@@ -64,6 +64,14 @@ def test_spec_documented_paths_include_every_real_endpoint():
     assert set(response.data["paths"]["/api/transfers/{id}/reject/"]) >= {"post"}
 
 
+def test_spec_served_schema_lists_every_transfer_path_to_anonymous_http_clients() -> None:
+    """Swagger UI fetches the schema over HTTP, so all transfer paths must be served."""
+    response = APIClient().get("/api/schema/", {"format": "json"})
+    assert response.status_code == 200
+    paths = set(json.loads(response.content)["paths"])
+    assert paths >= {path for path in DOCUMENTED_PATHS if path.startswith("/api/transfers")}
+
+
 def test_spec_schema_describes_action_request_bodies():
     schema = APIClient().get("/api/schema/").data
     paths = schema["paths"]

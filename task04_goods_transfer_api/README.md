@@ -148,12 +148,12 @@ before Django imports settings, so the test command needs no key export. It neve
 `tests/conftest.py` calls the same `ensure_database()` helper as `manage.py ensure_db` before pytest-django
 builds `test_task04`; no Redis is used.
 
-Latest full gate: **83 passed** (`.venv/bin/python -m pytest -q`). Collect counts, reproducible in this folder:
+Latest full gate: **84 passed** (`.venv/bin/python -m pytest -q`). Collect counts, reproducible in this folder:
 
 ```bash
 set -a; . ../.env; set +a
-.venv/bin/python -m pytest --collect-only -q | tail -1                       # 83 tests collected
-.venv/bin/python -m pytest --collect-only -q -k test_spec_role_matrix | tail -1  # 36/83 tests collected (47 deselected)
+.venv/bin/python -m pytest --collect-only -q | tail -1                       # 84 tests collected
+.venv/bin/python -m pytest --collect-only -q -k test_spec_role_matrix | tail -1  # 36/84 tests collected (48 deselected)
 ```
 
 ## Deliverables covered
@@ -309,11 +309,26 @@ was executed against a live `runserver`; the status labels in "Try it" are the r
 | 4 | Print a supplied `DEMO_PASSWORD` | `tests/test_round3_docs_and_seed.py::test_spec_seed_demo_never_prints_a_supplied_password` | `AssertionError: assert 'supplied-demo-secret-42' not in 'Demo user: ...-secret-42\n'` |
 | 5 | Drop `@extend_schema(request=RejectSerializer)` from `reject` | `tests/test_round3_docs_and_seed.py::test_spec_schema_describes_action_request_bodies` | `assert {'created_at'...n', 'id', ...} == {'reason'}` |
 
-After reverting all five, the full gate is green: **83 passed**, verified with the commands in "Test" and below:
+After reverting all five, the full gate is green: **84 passed**, verified with the commands in "Test" and below:
 
 ```bash
 set -a; . ../.env; set +a
 .venv/bin/python -m ruff format . && .venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .
-.venv/bin/python -m pytest -q                                              # 83 passed
-.venv/bin/python -m pytest --collect-only -q | tail -1                     # 83 tests collected
+.venv/bin/python -m pytest -q                                              # 84 passed
+.venv/bin/python -m pytest --collect-only -q | tail -1                     # 84 tests collected
 ```
+
+## Round 4
+
+Added `tests/test_round3_docs_and_seed.py::test_spec_served_schema_lists_every_transfer_path_to_anonymous_http_clients`.
+It makes an anonymous HTTP `GET /api/schema/?format=json` and asserts every transfer path from
+`DOCUMENTED_PATHS` is present; on the current code it passed with `1 passed in 0.29s`. No implementation
+change was needed, so there is no new red fix for this task.
+
+The exact "Try it" bash blocks were extracted from this README and run against a real `runserver`:
+`create draft: HTTP 201`, `submit: HTTP 200`, `employee approve: HTTP 403`, `approve: HTTP 200`,
+`second decision: HTTP 409`, `quantity 0: HTTP 400`, `foreign create: HTTP 201`,
+`outside visibility: HTTP 404`. A separate live check returned `docs 200`, `schema 200`,
+`protected 401` and listed `/api/schema/`, `/api/transfers/`, `/api/transfers/{id}/`,
+`/api/transfers/{id}/approve/`, `/api/transfers/{id}/reject/`, `/api/transfers/{id}/submit/`.
+The full gate is now **84 passed**; `pytest --collect-only -q | tail -1` prints `84 tests collected`.
