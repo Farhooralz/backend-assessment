@@ -1,5 +1,7 @@
 """Round 3 contract: the API is browsable without weakening its permissions."""
 
+import json
+
 import pytest
 import yaml
 from django.core.management import call_command
@@ -79,3 +81,10 @@ def test_spec_schema_advertises_bearer_access_token() -> None:
 def test_spec_protected_endpoint_still_requires_authentication() -> None:
     response = APIClient().get(PROTECTED_URL)
     assert response.status_code in (401, 403)
+
+
+def test_spec_served_schema_lists_every_endpoint_to_anonymous_visitors() -> None:
+    """Swagger UI fetches the schema without a token, so the served schema must list every path."""
+    response = APIClient().get("/api/schema/", {"format": "json"})
+    assert response.status_code == 200
+    assert set(json.loads(response.content)["paths"]) >= EXPECTED_PATHS

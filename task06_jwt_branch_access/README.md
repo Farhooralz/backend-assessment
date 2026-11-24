@@ -57,8 +57,8 @@ Full quality gate (the exact command run before reporting):
 ```
 
 Measured result from the final gate: `36 files left unchanged`, `All checks passed!`,
-`36 files already formatted`, `72 passed`. Collect count from
-`.venv/bin/python -m pytest --collect-only -q | tail -1`: `72 tests collected`.
+`36 files already formatted`, `73 passed`. Collect count from
+`.venv/bin/python -m pytest --collect-only -q | tail -1`: `73 tests collected`.
 Versions pinned in `requirements.txt` and installed: Django 5.2.19, DRF 3.16.1,
 drf-spectacular 0.30.0, PyJWT 2.15.1, psycopg[binary] 3.2.10, redis 6.4.0, pytest 8.4.2,
 pytest-django 4.11.1, pytest-timeout 2.4.0, pytest-cov 7.1.0, ruff 0.17.6.
@@ -350,7 +350,7 @@ Both are recorded as ⚠ assumptions below.
   grep -E '^  /api' /tmp/opencode/task06-schema.yaml` printed `exit=0`, `7334 /tmp/opencode/task06-schema.yaml`
   and no warnings. Paths in that document: `/api/invoices/`,
   `/api/invoices/{id}/`, `/api/schema/`, `/api/token/`, `/api/token/logout/`, `/api/token/refresh/`.
-- `.venv/bin/python -m pytest --collect-only -q | tail -1`: `72 tests collected`.
+- `.venv/bin/python -m pytest --collect-only -q | tail -1`: `73 tests collected`.
 - Actual `curl` run against `runserver 127.0.0.1:8000 --noreload`:
   `docs=200 schema=200 invoices_noauth=401`, `login=200`, `analyst_list=200`, `customer_list=200`,
   `outside_detail=404`, `refresh=200`, `old_refresh_replay=401`, `fresh_login=200`, `logout=204`,
@@ -416,3 +416,27 @@ invoice list, a token-introspection endpoint, password reset, HTTPS enforcement,
 secret storage (keys must be injected from the deployment's secret manager). There is no admin UI.
 Swagger/OpenAPI documentation is available at `/api/docs/` and `/api/schema/`; both are public,
 while every token and invoice route keeps its existing authentication and permissions.
+
+## Round 4
+
+The owner's fix is present: `SPECTACULAR_SETTINGS` no longer contains `SERVE_PUBLIC`, and
+`tests/test_schema_docs.py::test_spec_served_schema_lists_every_endpoint_to_anonymous_visitors`
+makes an anonymous HTTP `GET /api/schema/?format=json` and asserts every path in `EXPECTED_PATHS`,
+including `/api/invoices/` and `/api/invoices/{id}/`.
+
+The first full gate on that tree failed on style (real output): `1 file would be reformatted,
+35 files already formatted` and `Found 1 error. [*] 1 fixable with --fix.`. The added imports were
+ordered as `import json`, blank line, `import pytest`, `import yaml`, and a blank line was inserted
+before the new test. The next gate was green: `36 files already formatted`, `All checks passed!`,
+`73 passed in 21.61s`.
+
+Mutation spot-check of the owner's behaviour fix: re-adding `"SERVE_PUBLIC": False` made
+`tests/test_schema_docs.py::test_spec_served_schema_lists_every_endpoint_to_anonymous_visitors`
+fail with `Extra items in the right set: '/api/invoices/'` and `'/api/invoices/{id}/'`; the mutation
+was reverted and the test is green.
+
+The exact "Try it" bash blocks were extracted from this README and run against a live `runserver`:
+`docs 200`, `schema 200`, `no auth 401`, `login 200`, `analyst list 200`, `customer login 200`,
+`customer list 200`, `outside detail 404`, `refresh 200`, `old refresh 401`, `re-login 200`,
+`logout 204`, `after logout 401`. The full gate is now **73 passed**;
+`pytest --collect-only -q | tail -1` prints `73 tests collected`.

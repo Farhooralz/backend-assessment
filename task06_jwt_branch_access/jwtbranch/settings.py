@@ -92,5 +92,4 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "JWT-authenticated, branch-scoped invoice access.",
     "VERSION": "1.0.0",
     "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
-    "SERVE_PUBLIC": False,
 }
