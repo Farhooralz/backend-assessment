@@ -1,5 +1,6 @@
 """ViewSet exposing the request lifecycle; business rules live in services."""
 
+from drf_spectacular.utils import extend_schema
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -60,6 +61,7 @@ class TransferRequestViewSet(ModelViewSet):
             "source", "destination", "created_by", "decided_by"
         ).order_by("-created_at", "-id")
 
+    @extend_schema(request=None, summary="Send an owned draft for approval")
     @action(detail=True, methods=["post"])
     def submit(self, request, pk=None):
         obj = self.get_object()
@@ -71,10 +73,12 @@ class TransferRequestViewSet(ModelViewSet):
             raise Conflict(str(exc)) from exc
         return Response(self.get_serializer(obj).data)
 
+    @extend_schema(request=None, summary="Approve a submitted request")
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         return self._decide(request, "approve")
 
+    @extend_schema(request=RejectSerializer, summary="Reject a submitted request with a reason")
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
         return self._decide(request, "reject")

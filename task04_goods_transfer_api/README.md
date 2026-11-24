@@ -23,7 +23,7 @@ checkout works without running the tests first. It reads `POSTGRES_HOST`, `POSTG
 `POSTGRES_PASSWORD` from the environment; an empty port or password (the local unix-socket fallback) is passed
 through unchanged.
 
-Endpoints (Basic or session authentication):
+Transfer endpoints use Basic or session authentication; docs/schema/login routes are listed too:
 
 | Method | Path | Effect |
 | --- | --- | --- |
@@ -33,6 +33,108 @@ Endpoints (Basic or session authentication):
 | POST | `/api/transfers/{id}/submit/` | creator sends the draft |
 | POST | `/api/transfers/{id}/approve/` | source manager approves |
 | POST | `/api/transfers/{id}/reject/` | source manager rejects; body `{"reason": "..."}` |
+| GET | `/api/schema/` | public OpenAPI document (YAML/JSON) |
+| GET | `/api/docs/` | public Swagger UI |
+| GET | `/api/auth/login/` | DRF session login helper (for Swagger `cookieAuth`) |
+
+The transfer endpoints above keep their existing Basic/session authentication and `TransferActionPermission`;
+only the documentation, schema and login-helper routes are public.
+
+## Try it (hand-on walkthrough)
+
+Start the API from the task folder (keep `runserver` running in that terminal):
+
+```bash
+cd task04_goods_transfer_api
+set -a; . ../.env; set +a
+export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+# Leave DEMO_PASSWORD unset: seed_demo generates one password and prints it once.
+# Alternatively: export DEMO_PASSWORD='<choose-a-demo-password>'
+.venv/bin/python manage.py ensure_db
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py seed_demo
+.venv/bin/python manage.py runserver 127.0.0.1:8000
+```
+
+Open **http://127.0.0.1:8000/api/docs/** (Swagger UI); the raw schema is at
+**http://127.0.0.1:8000/api/schema/**. Neither page needs a login. `seed_demo` prints the demo
+usernames `demo_employee`, `demo_manager`, `demo_other_employee` and creates 3 branches and 4
+requests covering `draft`, `submitted`, `approved` and `rejected`. Running it twice creates no
+duplicates (`tests/test_round3_docs_and_seed.py::test_spec_seed_demo_is_idempotent` asserts this).
+
+### Swagger "Authorize" with a demo user
+
+- **Basic:** click **Authorize** → `basicAuth` → username `demo_employee`, password = the value you
+  exported as `DEMO_PASSWORD` (or the generated value printed by `seed_demo`). The same password
+  works for `demo_manager` and `demo_other_employee`.
+- **Session:** open http://127.0.0.1:8000/api/auth/login/ in the same browser, log in as
+  `demo_employee` with the demo password, copy the `sessionid` cookie value from browser developer
+  tools, then click **Authorize** → `cookieAuth` and paste that value. The login route comes from
+  DRF's `rest_framework.urls`; it does not change any transfer endpoint's permission.
+
+### curl walkthrough (expected status codes)
+
+In a second shell (from the same task folder), set `DEMO_PASSWORD` to the value printed by
+`seed_demo` (or to the value you exported in the first shell):
+
+```bash
+set -a; . ../.env; set +a
+export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export DEMO_PASSWORD='<password-printed-by-seed_demo>'
+API=http://127.0.0.1:8000
+EMPLOYEE="demo_employee:$DEMO_PASSWORD"
+MANAGER="demo_manager:$DEMO_PASSWORD"
+OTHER="demo_other_employee:$DEMO_PASSWORD"
+SOURCE_ID=$(.venv/bin/python manage.py shell -c "from transfer.models import Branch; print(Branch.objects.get(name='Demo Source').pk)" | tail -1)
+DEST_ID=$(.venv/bin/python manage.py shell -c "from transfer.models import Branch; print(Branch.objects.get(name='Demo Destination').pk)" | tail -1)
+OTHER_ID=$(.venv/bin/python manage.py shell -c "from transfer.models import Branch; print(Branch.objects.get(name='Demo Other').pk)" | tail -1)
+
+# 1. Employee creates a draft -> HTTP 201, "status":"draft"
+curl -s -o /tmp/t04-create.json -w 'create draft: HTTP %{http_code}\n' -u "$EMPLOYEE" \
+  -H 'Content-Type: application/json' \
+  -d "{\"source\":$SOURCE_ID,\"destination\":$DEST_ID,\"item_name\":\"balls\",\"quantity\":3}" \
+  "$API/api/transfers/"
+cat /tmp/t04-create.json
+ID=$(.venv/bin/python -c "import json; print(json.load(open('/tmp/t04-create.json'))['id'])")
+
+# 2. Employee sends it -> HTTP 200, "status":"submitted"
+curl -s -o /tmp/t04-submit.json -w 'submit: HTTP %{http_code}\n' -u "$EMPLOYEE" \
+  -X POST "$API/api/transfers/$ID/submit/"
+cat /tmp/t04-submit.json
+
+# 3. Forbidden action on a visible record: employee approves -> HTTP 403
+curl -s -o /dev/null -w 'employee approve: HTTP %{http_code}\n' -u "$EMPLOYEE" \
+  -X POST "$API/api/transfers/$ID/approve/"
+
+# 4. Source manager approves -> HTTP 200, "status":"approved"
+curl -s -o /tmp/t04-approve.json -w 'approve: HTTP %{http_code}\n' -u "$MANAGER" \
+  -X POST "$API/api/transfers/$ID/approve/"
+cat /tmp/t04-approve.json
+
+# 5. Second decision -> HTTP 409
+curl -s -o /dev/null -w 'second decision: HTTP %{http_code}\n' -u "$MANAGER" \
+  -X POST "$API/api/transfers/$ID/approve/"
+
+# 6. Quantity 0 -> HTTP 400
+curl -s -o /dev/null -w 'quantity 0: HTTP %{http_code}\n' -u "$EMPLOYEE" \
+  -H 'Content-Type: application/json' \
+  -d "{\"source\":$SOURCE_ID,\"destination\":$DEST_ID,\"item_name\":\"balls\",\"quantity\":0}" \
+  "$API/api/transfers/"
+
+# 7. Record outside visibility -> HTTP 404 (created by demo_other_employee for Demo Other)
+curl -s -o /tmp/t04-foreign.json -w 'foreign create: HTTP %{http_code}\n' -u "$OTHER" \
+  -H 'Content-Type: application/json' \
+  -d "{\"source\":$SOURCE_ID,\"destination\":$OTHER_ID,\"item_name\":\"balls\",\"quantity\":1}" \
+  "$API/api/transfers/"
+FOREIGN_ID=$(.venv/bin/python -c "import json; print(json.load(open('/tmp/t04-foreign.json'))['id'])")
+curl -s -o /dev/null -w 'outside visibility: HTTP %{http_code}\n' -u "$EMPLOYEE" \
+  "$API/api/transfers/$FOREIGN_ID/"
+```
+
+Expected labels: `create draft: HTTP 201`, `submit: HTTP 200`, `employee approve: HTTP 403`,
+`approve: HTTP 200`, `second decision: HTTP 409`, `quantity 0: HTTP 400`,
+`foreign create: HTTP 201`, `outside visibility: HTTP 404`. The same flow is asserted by
+`tests/test_round3_docs_and_seed.py::test_spec_seed_demo_supports_the_documented_curl_walkthrough`.
 
 ## Test
 
@@ -46,12 +148,12 @@ before Django imports settings, so the test command needs no key export. It neve
 `tests/conftest.py` calls the same `ensure_database()` helper as `manage.py ensure_db` before pytest-django
 builds `test_task04`; no Redis is used.
 
-Latest full gate: **73 passed** (`.venv/bin/python -m pytest -q`). Collect counts, reproducible in this folder:
+Latest full gate: **83 passed** (`.venv/bin/python -m pytest -q`). Collect counts, reproducible in this folder:
 
 ```bash
 set -a; . ../.env; set +a
-.venv/bin/python -m pytest --collect-only -q | tail -1                       # 73 tests collected
-.venv/bin/python -m pytest --collect-only -q -k test_spec_role_matrix | tail -1  # 36/73 tests collected (37 deselected)
+.venv/bin/python -m pytest --collect-only -q | tail -1                       # 83 tests collected
+.venv/bin/python -m pytest --collect-only -q -k test_spec_role_matrix | tail -1  # 36/83 tests collected (47 deselected)
 ```
 
 ## Deliverables covered
@@ -81,6 +183,15 @@ set -a; . ../.env; set +a
 - **Reproducible setup**: `transfer/db_bootstrap.py` holds `connect()`, `database_exists()` and the idempotent
   `ensure_database()`; used by both `tests/conftest.py` and `manage.py ensure_db`. Covered by the behavioural
   `test_spec_ensure_database_is_idempotent`.
+- **Swagger / OpenAPI**: `drf-spectacular==0.30.0` serves a public `/api/schema/` and `/api/docs/`;
+  the schema validates with `--validate --fail-on-warn` and documents every transfer endpoint plus
+  `/api/schema/`. Covered by `tests/test_round3_docs_and_seed.py::test_spec_schema_generates_without_errors_or_warnings`,
+  `::test_spec_documented_paths_include_every_real_endpoint`, `::test_spec_docs_are_public_but_existing_endpoints_still_require_auth`
+  and `::test_spec_schema_describes_action_request_bodies`.
+- **Demo seed**: `manage.py seed_demo` creates 3 branches, 3 users and 4 requests idempotently;
+  passwords come only from `DEMO_PASSWORD` or a one-time generated secret. Covered by the five
+  `test_spec_seed_demo_*` tests and `test_spec_session_login_supports_swagger_cookie_auth` in
+  `tests/test_round3_docs_and_seed.py`.
 - **Money**: none in this task; no `float` values are used.
 
 ## Assumptions
@@ -101,6 +212,14 @@ set -a; . ../.env; set +a
   with `?page_size=2` in tests, never hard-coded into pagination settings.
 - `ensure_database()` creates `task04` only when it is absent and returns `True`/`False` for created/already
   present. It connects to the `postgres` maintenance database and never prints or logs credentials.
+- ⚠ The Swagger UI page and the DRF session-login helper are UI/support routes, not API resources, so
+  drf-spectacular excludes them from the OpenAPI document. All five transfer API paths plus `/api/schema/`
+  are documented (`test_spec_documented_paths_include_every_real_endpoint`).
+- ⚠ `DEMO_PASSWORD` is used as-is and is never printed. When it is unset, a random password is generated
+  **only if a demo user still needs to be created**, printed once, and then reused on later runs; re-running
+  `seed_demo` never rotates or prints it again.
+- The demo password is shared by the three demo users so the Swagger `Authorize` dialog needs one value.
+  Usernames, branch names and seeded item names are stable natural keys; that is what makes the seed idempotent.
 
 ## Unfinished parts
 
@@ -157,4 +276,44 @@ All four mutations change business behaviour and name the exact test that fails.
 | 3 | Remove the destination-branch create check from both `TransferRequestSerializer.validate` and `create_request` | `tests/test_transfer_api.py::test_spec_employee_creating_for_other_destination_returns_403` | `assert 201 == 403` |
 | 4 | Skip writing `decided_by` / `decided_at` in `decide_request` | `tests/test_transfer_api.py::test_spec_sample_three_balls_draft_send_approve` | `assert None == 2` |
 
-After reverting all four, the full gate is green: **73 passed**.
+After reverting all four, the full gate is green: **73 passed** at the end of round 2.
+
+## Round 3 (Swagger/OpenAPI + demo seed)
+
+Red-first proof, captured before any Round-3 implementation change (verbatim pytest lines):
+
+- `tests/test_round3_docs_and_seed.py::test_spec_schema_generates_without_errors_or_warnings`
+  — `E       AssertionError: assert 'spectacular' in {'changepassword': 'django.contrib.auth', ...}`
+- `tests/test_round3_docs_and_seed.py::test_spec_docs_are_public_but_existing_endpoints_still_require_auth`
+  — `E       assert 404 == 200` (the `/api/docs/` line)
+- `tests/test_round3_docs_and_seed.py::test_spec_documented_paths_include_every_real_endpoint`
+  — `E       assert 404 == 200` (the `/api/schema/` line)
+- `tests/test_round3_docs_and_seed.py::test_spec_schema_describes_action_request_bodies`
+  — `E       AssertionError: assert {'created_at'...n', 'id', ...} == {'reason'}`
+- `tests/test_round3_docs_and_seed.py::test_spec_session_login_supports_swagger_cookie_auth`
+  — `E       assert 404 == 200` (the `/api/auth/login/` line)
+- Every `test_spec_seed_demo_*` test initially failed with
+  `E               django.core.management.base.CommandError: Unknown command: 'seed_demo'`.
+
+The public-docs change did not reproduce any auth regression: `test_spec_docs_are_public_but_existing_endpoints_still_require_auth`
+also asserts 401 for list, create and detail, and those assertions passed before the fix. The interactive walkthrough itself
+was executed against a live `runserver`; the status labels in "Try it" are the real output.
+
+### Mutation spot-check (round 3; each applied, tested, then reverted)
+
+| # | Deliberate break (behaviour/deliverable) | Failing test (`file::test_name`) | Real assertion |
+| --- | --- | --- | --- |
+| 1 | Remove the `/api/docs/` route | `tests/test_round3_docs_and_seed.py::test_spec_docs_are_public_but_existing_endpoints_still_require_auth` | `assert 404 == 200` |
+| 2 | Change the docs views' permission to `IsAuthenticated` | `tests/test_round3_docs_and_seed.py::test_spec_docs_are_public_but_existing_endpoints_still_require_auth` | `assert 403 == 200` |
+| 3 | Always `create()` demo transfer requests instead of `get_or_create()` | `tests/test_round3_docs_and_seed.py::test_spec_seed_demo_is_idempotent` | `assert (3, 3, 3, 8) == (3, 3, 3, 4)` |
+| 4 | Print a supplied `DEMO_PASSWORD` | `tests/test_round3_docs_and_seed.py::test_spec_seed_demo_never_prints_a_supplied_password` | `AssertionError: assert 'supplied-demo-secret-42' not in 'Demo user: ...-secret-42\n'` |
+| 5 | Drop `@extend_schema(request=RejectSerializer)` from `reject` | `tests/test_round3_docs_and_seed.py::test_spec_schema_describes_action_request_bodies` | `assert {'created_at'...n', 'id', ...} == {'reason'}` |
+
+After reverting all five, the full gate is green: **83 passed**, verified with the commands in "Test" and below:
+
+```bash
+set -a; . ../.env; set +a
+.venv/bin/python -m ruff format . && .venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .
+.venv/bin/python -m pytest -q                                              # 83 passed
+.venv/bin/python -m pytest --collect-only -q | tail -1                     # 83 tests collected
+```
