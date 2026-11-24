@@ -1,10 +1,34 @@
 # Task status
 
-Last updated: 2026-11-22 - ROUND 2 COMPLETE. All ten tasks were re-fixed, re-gated, committed and pushed
-after the external review described in `docs/ROUND2_BRIEF.md`. Round-1 "DONE" results were superseded by
-the Round-2 entries below.
+Last updated: 2026-11-24 - ROUND 3 COMPLETE. Round 2 was complete and pushed; the owner requested a
+small scoped follow-up: Swagger/OpenAPI plus hand-testable seed data for tasks 4 and 6 only. `AGENTS.md`
+now records that exception. Both task subagents finished their red-first, mutation-checked work; the
+orchestrator re-ran every gate on the final tree and all ten tasks are green.
 
 Infrastructure note: `docker compose up -d` failed with "permission denied". The no-Docker fallback `scripts/local_infra.sh` is now committed and was verified from a fresh clone: it bootstrapped its own PostgreSQL 16.2 (unix socket) and Redis 6.2, wrote the git-ignored `.env`, and a real `psycopg` query plus `redis.ping()` both succeeded. No `.env` values were printed or committed. Python 3.12.16 (uv-managed) was used for every gate; no Python 3.14 result is claimed.
+
+## Round 3 (final)
+
+- Scope: only `task04_goods_transfer_api` and `task06_jwt_branch_access` changed. Swagger/OpenAPI and demo
+  seeding were added there; all other tasks were untouched except the final orchestrator gate sweep.
+- T4 DONE. Red phase: `8 failed` (no `spectacular`, 404 docs/schema/login, missing `seed_demo`,
+  wrong action request body). Added public `/api/schema/` and `/api/docs/`, Basic/session Swagger auth,
+  idempotent `seed_demo`, and a live-status `curl` walkthrough. Five behaviour mutations were caught.
+  Orchestrator gate: `30 files left unchanged`, `All checks passed!`, `30 files already formatted`,
+  `83 passed in 37.57s`; collect count `83 tests collected`.
+- T6 DONE. Red phase: `11 failed, 1 passed` (missing `spectacular`/`seed_demo`, 404 docs, incompatible
+  AutoSchema). Added public docs, `@extend_schema` for login/refresh/logout with small serializers, a
+  Bearer `OpenApiAuthenticationExtension`, an idempotent two-branch analyst + customer seed, and removed
+  the stale no-Swagger README sentence. Four behaviour mutations were caught. Orchestrator gate:
+  `36 files left unchanged`, `All checks passed!`, `36 files already formatted`, `72 passed in 21.88s`;
+  collect count `72 tests collected`.
+- Schema CLI on the final tree: `spectacular --validate --fail-on-warn` exited 0 for both tasks;
+  T4 produced 20324 bytes, T6 produced 7334 bytes. Public docs returned 200 unauthenticated while
+  existing protected endpoints still returned 401/403.
+- Full orchestrator sweep with `../.env` loaded (all gates green): T1 38, T2 39, T3 30, T4 83, T5 24,
+  T6 72, T7 28 passed + 11 xfailed (39 collected), T8 47, T9 30, T10 75. T2 and T9 coverage remained
+  `TOTAL 145 stmts, 0 miss, 100%` and `TOTAL 97 stmts, 0 miss, 100%`; T10 `check_doc.py` OK.
+- Round-3 commits: `93fd4d1` (T4), `94f3eb6` (T6), followed by this root-docs commit.
 
 Review fixes (all test-first, mutation-checked where applicable, gates re-run by the orchestrator):
 - T1: eager 64-stream limit and a dedicated mixed-key-type error (explicit owner exception to the freeze rule).
@@ -18,18 +42,18 @@ Review fixes (all test-first, mutation-checked where applicable, gates re-run by
 - T9: PostgreSQL + `select_for_update` cancel; concurrent-cancel test; `ensure_db`; mutation checker updated.
 - T10: partial exclusion constraint with `btree_gist`, corrected ERD, bounded staleness, sizing math, multiple SLOs, stronger doc checks.
 
-| Task | Round 1 | Round 2 (fix) | Status |
-| --- | --- | --- | --- |
-| 1 | DONE | none, frozen | DONE (fuzz-checked externally) |
-| 2 | DONE | none | DONE |
-| 3 | DONE | P0 bug + tests + seed + EXPLAIN | DONE (round 2) |
-| 4 | DONE | P1 tests/README/settings | DONE (round 2) |
-| 5 | DONE | P1 tests | DONE (round 2) |
-| 6 | DONE | P1 validation/logout/tests | DONE (round 2) |
-| 7 | DONE | P2 legacy-vs-new proof | DONE (round 2) |
-| 8 | DONE | P0 bug + P1 tests/observability | DONE (round 2) |
-| 9 | DONE | P0 test rewrite | DONE (round 2) |
-| 10 | DONE | P1 design fixes | DONE (round 2) |
+| Task | Round 1 | Round 2 (fix) | Round 3 | Status |
+| --- | --- | --- | --- | --- |
+| 1 | DONE | none, frozen | none, frozen | DONE (fuzz-checked externally) |
+| 2 | DONE | none | none | DONE |
+| 3 | DONE | P0 bug + tests + seed + EXPLAIN | none | DONE (round 2) |
+| 4 | DONE | P1 tests/README/settings | Swagger + demo seed | DONE (round 3) |
+| 5 | DONE | P1 tests | none | DONE (round 2) |
+| 6 | DONE | P1 validation/logout/tests | Swagger + demo seed | DONE (round 3) |
+| 7 | DONE | P2 legacy-vs-new proof | none | DONE (round 2) |
+| 8 | DONE | P0 bug + P1 tests/observability | none | DONE (round 2) |
+| 9 | DONE | P0 test rewrite | none | DONE (round 2) |
+| 10 | DONE | P1 design fixes | none | DONE (round 2) |
 
 ### Round 2 progress (chronological)
 

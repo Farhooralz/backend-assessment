@@ -7,7 +7,7 @@ pushes. This file overrides `docs/PLAN.md` and `docs/ENGINEERING_PLAN.md` wherev
 
 ## Goal and scope (finish everything in ONE day)
 - Requirements: `docs/TEST_SPEC.md` (the spec always wins). Per-task approach hints: `docs/PLAN.md` section 2.
-- Keep it simple. **Do NOT build**: CI workflows, deployment, frontend, Swagger/OpenAPI, ADRs, DDD layers,
+- Keep it simple. **Do NOT build**: CI workflows, deployment, frontend, ADRs, DDD layers. Exception: Swagger/OpenAPI is REQUIRED for tasks 4 and 6 only (Round 3).
   extra features. Plain functions/services, small modules, the smallest design that satisfies the spec.
 - Task 1 is DONE and frozen. Do not touch `task01_stream_merge/`.
 - Progress lives in `docs/STATUS.md`. Update it after every task. It is how work resumes after a crash.

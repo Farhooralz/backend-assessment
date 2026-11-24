@@ -2,6 +2,15 @@
 
 Ten independent mini-projects. Requirements: [`docs/TEST_SPEC.md`](docs/TEST_SPEC.md). Working rules: [`AGENTS.md`](AGENTS.md). Live progress: [`docs/STATUS.md`](docs/STATUS.md). Original plan: [`docs/PLAN.md`](docs/PLAN.md).
 
+## Round 3
+
+Scoped follow-up for the reviewer: Swagger/OpenAPI and hand-testable demo seeding for **tasks 4 and 6 only**.
+`AGENTS.md` records the exception; no other task was changed. Both tasks expose public `/api/schema/`
+and `/api/docs/`, keep every existing endpoint's authentication and permissions unchanged, and ship an
+idempotent `seed_demo` command that takes its password from `DEMO_PASSWORD` (or prints one generated
+password once). Test-first red proofs, behaviour mutations and copy-paste `curl` walkthroughs are in the
+two task READMEs. The orchestrator re-ran all ten gates; real results are below.
+
 ## Round 2
 
 Round 2 followed [`docs/ROUND2_BRIEF.md`](docs/ROUND2_BRIEF.md): every reproduced finding was written as a red test first, fixed, mutation-checked with business-logic mutations, and re-gated by the orchestrator. Task 1 stayed frozen. Findings that did not reproduce are documented as such in the relevant task README, with evidence.
@@ -24,14 +33,14 @@ Load the env before any task command: `set -a; . ../.env; set +a` (run from insi
 
 Every task's test command is the same quality gate: `ruff format . && ruff check . && ruff format --check . && pytest -q`.
 
-| # | Folder | Topic | Status (Round 2) | Run command | Test command |
+| # | Folder | Topic | Status (Round 3) | Run command | Test command |
 | --- | --- | --- | --- | --- | --- |
 | 1 | `task01_stream_merge` | Lazy k-way merge of event streams | DONE, frozen — 38 tests | `cd task01_stream_merge && .venv/bin/python measure_memory.py` | `cd task01_stream_merge && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 2 | `task02_pricing_engine` | Pricing engine (OOP/SOLID) | DONE — 39 tests | `cd task02_pricing_engine && .venv/bin/python -c "from decimal import Decimal as D; from pricing import QuoteEngine, QuoteContext, HourMultiplier, PercentDiscount, FixedCredit; print(QuoteEngine([HourMultiplier(D('1.5')), PercentDiscount(D('0.10')), FixedCredit(D('200'))]).quote(D('1000'), QuoteContext(10)))"` | `cd task02_pricing_engine && .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 3 | `task03_court_report` | Financial report per court (ORM/PostgreSQL) | DONE — 30 tests | `cd task03_court_report && set -a; . ../.env; set +a; DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django ensure_db && DJANGO_SETTINGS_MODULE=court_report.settings .venv/bin/python -m django migrate --noinput` | `cd task03_court_report && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 4 | `task04_goods_transfer_api` | Goods transfer API (DRF) | DONE — 73 tests | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py runserver` | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 4 | `task04_goods_transfer_api` | Goods transfer API (DRF) | DONE — 83 tests | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(48))')"; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py seed_demo && .venv/bin/python manage.py runserver` | `cd task04_goods_transfer_api && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 5 | `task05_last_seat_reservation` | Last-seat reservation (concurrency) | DONE — 24 tests | `cd task05_last_seat_reservation && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate` | `cd task05_last_seat_reservation && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
-| 6 | `task06_jwt_branch_access` | JWT + branch authorization | DONE — 60 tests | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" JWT_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')"; .venv/bin/python -m django ensure_db && .venv/bin/python -m django migrate` | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
+| 6 | `task06_jwt_branch_access` | JWT + branch authorization | DONE — 72 tests | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; export DJANGO_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" JWT_SECRET_KEY="$(.venv/bin/python -c 'import secrets; print(secrets.token_hex(32))')" DEMO_PASSWORD='<choose-a-demo-password>'; .venv/bin/python -m django ensure_db && .venv/bin/python -m django migrate && .venv/bin/python -m django seed_demo && .venv/bin/python -m django runserver 127.0.0.1:8000 --noreload` | `cd task06_jwt_branch_access && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 7 | `task07_debtors_refactor` | Debtors report refactor | DONE — 39 tests (28 passed, 11 xfailed) | `cd task07_debtors_refactor && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/python manage.py check` | `cd task07_debtors_refactor && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 8 | `task08_receipt_outbox` | Reliable receipt dispatch (Celery/Redis) | DONE — 47 tests | `cd task08_receipt_outbox && set -a; . ../.env; set +a; .venv/bin/python manage.py ensure_db && .venv/bin/python manage.py migrate && .venv/bin/celery -A celery_app worker -l info` | `cd task08_receipt_outbox && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
 | 9 | `task09_cancellation_tests` | Cancellation policy tests (pytest) | DONE — 30 tests | `cd task09_cancellation_tests && set -a; . ../.env; set +a; .venv/bin/python -m cancelapp.db_setup && DJANGO_SETTINGS_MODULE=cancelapp.settings .venv/bin/python -c "import django; django.setup(); from datetime import timedelta; from cancelapp.services import compute_refund; print(compute_refund(101, timedelta(hours=24)))"` | `cd task09_cancellation_tests && set -a; . ../.env; set +a; .venv/bin/ruff format . && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/python -m pytest -q` |
@@ -56,8 +65,28 @@ These are the orchestrator's real gate results on the current `dev` tree, not cl
 | 9 | all clean, 17 files formatted | `30 passed in 0.40s` | `TOTAL 97 stmts, 0 miss, 100%`; mutation checker 3/3 |
 | 10 | all clean, 6 files formatted | `75 passed in 0.14s` | `check_doc.py` OK |
 
-Round-1 clean-clone evidence is recorded in [`docs/STATUS.md`](docs/STATUS.md); Round 2 did not re-run a fresh clone, so no new clean-clone claim is made here.
+## Round 3 gate verification (source tree)
+
+The orchestrator loaded `../.env` and ran the full quality gate in every task folder on the final Round-3
+tree. Ruff format, check and format-check were clean for every task; the file count below is from
+`ruff format .`. Test counts are confirmed with `pytest --collect-only -q | tail -1`.
+
+| Task | Ruff | Tests | Extra |
+| --- | --- | --- | --- |
+| 1 | clean, 6 files | `38 passed in 4.06s` | 38 collected; frozen |
+| 2 | clean, 10 files | `39 passed in 0.03s` | 39 collected; `TOTAL 145 stmts, 0 miss, 100%` |
+| 3 | clean, 20 files | `30 passed in 10.43s` | 30 collected |
+| 4 | clean, 30 files | `83 passed in 37.57s` | 83 collected; schema CLI exit 0, 20324 bytes |
+| 5 | clean, 19 files | `24 passed in 0.52s` | 24 collected |
+| 6 | clean, 36 files | `72 passed in 21.88s` | 72 collected; schema CLI exit 0, 7334 bytes |
+| 7 | clean, 18 files | `28 passed, 11 xfailed in 0.40s` | 39 collected |
+| 8 | clean, 20 files | `47 passed in 5.06s` | 47 collected |
+| 9 | clean, 17 files | `30 passed in 0.31s` | 30 collected; `TOTAL 97 stmts, 0 miss, 100%` |
+| 10 | clean, 6 files | `75 passed in 0.14s` | 75 collected; `check_doc.py` OK |
+
+Round-1 clean-clone evidence is recorded in [`docs/STATUS.md`](docs/STATUS.md); neither Round 2 nor
+Round 3 re-ran a fresh clone, so no new clean-clone claim is made here.
 
 ## AI assistance
 
-AI assistance was used. Tests were written from the spec first, run in a red phase, then the smallest implementation was added to turn them green. Every implementation was mutation-checked with deliberate defects and the results recorded in the task README. Every task README lists its assumptions and unfinished parts. Task 1 was frozen by `AGENTS.md`; its two stricter input validations were added only because the repository owner explicitly requested them in Round 1.
+AI assistance was used. Tests were written from the spec first, run in a red phase, then the smallest implementation was added to turn them green. Every implementation was mutation-checked with deliberate defects and the results recorded in the task README. Every task README lists its assumptions and unfinished parts. Round 3 followed the same test-first, mutation-checked, evidence-based process for the two scoped tasks. Task 1 was frozen by `AGENTS.md`; its two stricter input validations were added only because the repository owner explicitly requested them in Round 1.
