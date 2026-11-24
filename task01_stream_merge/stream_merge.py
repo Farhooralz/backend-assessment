@@ -1,0 +1,158 @@
+"""Lazy k-way merge of sorted payment-event iterators.
+
+Only one pending event per input stream is retained, so memory scales with the
+number of streams rather than with the number of events.
+"""
+
+import heapq
+from collections.abc import Iterable, Iterator
+from typing import Any
+
+MAX_STREAMS = 64
+
+_Key = tuple[Any, Any]
+_Entry = tuple[Any, Any, int, Any]
+Event = tuple[Any, Any, Any]
+
+
+class MergeError(ValueError):
+    """Base class for every error raised by this module."""
+
+
+class TooManyStreamsError(MergeError):
+    """Raised when more than MAX_STREAMS iterators are supplied."""
+
+
+class UnsortedStreamError(MergeError):
+    """Raised when an input stream is not sorted by (time, id)."""
+
+
+class InvalidEventError(MergeError):
+    """Raised when a yielded item is not a three-field event."""
+
+
+class IncompatibleKeyError(MergeError):
+    """Raised when sort-key components cannot be ordered against the first key seen."""
+
+    def __init__(self, index: int, label: str, value: Any, reference: Any) -> None:
+        self.index = index
+        self.label = label
+        self.value = value
+        self.reference = reference
+        super().__init__(
+            f"stream {index}: {label} {value!r} ({type(value).__name__}) cannot be "
+            f"ordered against {reference!r} ({type(reference).__name__}); "
+            "all streams must use comparable sort-key types"
+        )
+
+
+class ConflictingAmountError(MergeError):
+    """Raised when one key carries two different amounts."""
+
+    def __init__(self, time: Any, id: Any, first_amount: Any, second_amount: Any) -> None:
+        self.time = time
+        self.id = id
+        self.first_amount = first_amount
+        self.second_amount = second_amount
+        super().__init__(
+            f"conflicting amount for key ({time!r}, {id!r}): {first_amount} != {second_amount}"
+        )
+
+
+def _check_key_types(index: int, key: _Key, reference: _Key) -> None:
+    """Force heapq's ordering check up front so unlike key types get a clear error."""
+    for label, value, ref in zip(("time", "id"), key, reference, strict=True):
+        try:
+            sorted((value, ref))
+        except TypeError as exc:
+            raise IncompatibleKeyError(index, label, value, ref) from exc
+
+
+def _read_event(
+    stream: Iterator[Any],
+    index: int,
+    last_keys: list[_Key | None],
+    reference: list[_Key | None],
+) -> _Entry | None:
+    """Read one event, validate its shape and order, and return a heap entry."""
+    try:
+        item = next(stream)
+    except StopIteration:
+        return None
+    try:
+        time, ident, amount = item
+    except (TypeError, ValueError) as exc:
+        raise InvalidEventError(
+            f"stream {index}: expected (time, id, amount), got {item!r}"
+        ) from exc
+
+    key: _Key = (time, ident)
+    if reference[0] is None:
+        reference[0] = key
+    else:
+        _check_key_types(index, key, reference[0])
+    previous = last_keys[index]
+    if previous is not None and key < previous:
+        raise UnsortedStreamError(
+            f"stream {index}: key {key!r} is before previous key {previous!r}"
+        )
+    last_keys[index] = key
+    return (time, ident, index, amount)
+
+
+def _consume_key(
+    stream: Iterator[Any],
+    index: int,
+    key: _Key,
+    amount: Any,
+    last_keys: list[_Key | None],
+    reference: list[_Key | None],
+) -> _Entry | None:
+    """Skip repeated copies of key in one stream, checking their amounts."""
+    while True:
+        entry = _read_event(stream, index, last_keys, reference)
+        if entry is None or (entry[0], entry[1]) != key:
+            return entry
+        if entry[3] != amount:
+            raise ConflictingAmountError(key[0], key[1], amount, entry[3])
+
+
+def merge(streams: Iterable[Iterator[Any]]) -> Iterator[Event]:
+    """Validate the stream count now, then return a lazy merged iterator."""
+    iterators: list[Iterator[Any]] = []
+    for stream in streams:
+        if len(iterators) >= MAX_STREAMS:
+            raise TooManyStreamsError(f"at most {MAX_STREAMS} streams are supported")
+        iterators.append(iter(stream))
+    return _merge(iterators)
+
+
+def _merge(iterators: list[Iterator[Any]]) -> Iterator[Event]:
+    """Merge the validated iterators without reading ahead of the consumer."""
+    last_keys: list[_Key | None] = [None] * len(iterators)
+    reference: list[_Key | None] = [None]
+    heap: list[_Entry] = []
+    for index, stream in enumerate(iterators):
+        entry = _read_event(stream, index, last_keys, reference)
+        if entry is not None:
+            heapq.heappush(heap, entry)
+
+    while heap:
+        time, ident, index, amount = heapq.heappop(heap)
+        key: _Key = (time, ident)
+
+        entry = _consume_key(iterators[index], index, key, amount, last_keys, reference)
+        if entry is not None:
+            heapq.heappush(heap, entry)
+
+        while heap and (heap[0][0], heap[0][1]) == key:
+            _, _, other_index, other_amount = heapq.heappop(heap)
+            if other_amount != amount:
+                raise ConflictingAmountError(time, ident, amount, other_amount)
+            entry = _consume_key(
+                iterators[other_index], other_index, key, amount, last_keys, reference
+            )
+            if entry is not None:
+                heapq.heappush(heap, entry)
+
+        yield (time, ident, amount)

@@ -1,0 +1,9 @@
+Django==5.2.19
+djangorestframework==3.16.1
+drf-spectacular==0.30.0
+psycopg[binary]==3.2.10
+pytest==8.4.2
+pytest-cov==7.1.0
+pytest-django==4.11.1
+pytest-timeout==2.4.0
+ruff==0.17.6

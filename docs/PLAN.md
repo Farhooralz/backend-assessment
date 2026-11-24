@@ -2,6 +2,13 @@
 # Project Plan & Tracker
  
 Source of truth for requirements: **`TEST_SPEC.md`**. If this plan and the spec disagree, the spec wins.
+
+## Round 2 (authoritative note)
+
+Round 2 followed [`docs/ROUND2_BRIEF.md`](ROUND2_BRIEF.md). Round 3 added Swagger/OpenAPI for tasks 4
+and 6 only. `AGENTS.md` and `TEST_SPEC.md` win wherever the older plan text below still mentions CI,
+deployment, frontend, ADRs or reviewer-written tests. Those other items were deliberately not built.
+Live status is in [`STATUS.md`](STATUS.md); the rest of this file is kept as the original design history.
  
 ## 0. Working rules
  
@@ -21,11 +28,10 @@ Source of truth for requirements: **`TEST_SPEC.md`**. If this plan and the spec 
  
 ```
 backend-assessment/
-├── README.md                  # index: tasks, how to run each, CI badge
+├── README.md                  # index: tasks and how to run each
 ├── TEST_SPEC.md               # source of truth (translated PDF)
-├── PLAN.md                    # this file
+├── PLAN.md                    # this file (original design history)
 ├── docker-compose.yml         # postgres + redis (shared by tasks that need them)
-├── .github/workflows/ci.yml   # matrix job per task, Postgres/Redis service containers
 ├── task01_stream_merge/       # stdlib only
 ├── task02_pricing_engine/
 ├── task03_court_report/
@@ -35,8 +41,7 @@ backend-assessment/
 ├── task07_debtors_refactor/
 ├── task08_receipt_outbox/
 ├── task09_cancellation_tests/
-├── task10_erp_architecture/   # docs only (Markdown + Mermaid diagrams)
-└── deploy/                    # OPTIONAL demo deployment, outside the task folders
+└── task10_erp_architecture/   # docs only (Markdown + Mermaid diagrams)
 ```
  
 Every task folder: `README.md`, `requirements.txt`, source, `tests/`, and (where needed) `docker-compose.yml` or a pointer to the root one.
@@ -104,54 +109,33 @@ Update as we go (`[ ]` → `[x]`).
  
 | # | Task | Spec re-read | Tests written | Implemented | README done | Clean-clone verified | I can explain it |
 |---|------|:-:|:-:|:-:|:-:|:-:|:-:|
-| 0 | Skeleton + Docker + CI | [x] | n/a | [x] | [x] | [ ] (Docker/CI not runnable in my sandbox; verify on your machine) | [ ] |
+| 0 | Skeleton + local infra fallback | [x] | n/a | [x] | [x] | [x] (fallback script verified from a clean clone in Round 1; Docker/CI intentionally not built) | [ ] |
 | 1 | Stream merge | [x] | [x] | [x] | [x] | [x] | [ ] (your job: read `stream_merge.py` + README) |
-| 2 | Pricing engine | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 3 | Court report | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 4 | Goods transfer API | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 5 | Last-seat reservation | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 6 | JWT + branch access | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 7 | Debtors refactor | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 8 | Receipt outbox | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 9 | Cancellation tests | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
-| 10 | ERP architecture doc | [ ] | n/a | n/a | [ ] | [ ] | [ ] |
+| 2 | Pricing engine | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 3 | Court report | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 4 | Goods transfer API | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 5 | Last-seat reservation | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 6 | JWT + branch access | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 7 | Debtors refactor | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 8 | Receipt outbox | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 9 | Cancellation tests | [x] | [x] | [x] | [x] | [x] | [ ] |
+| 10 | ERP architecture doc | [x] | n/a | n/a | [x] | [x] | [ ] |
+
+Note (2026-11-22): AGENTS.md autonomous mode overrides the human-writer/human-committer assumption above. Tasks 2-10 were implemented and clean-clone verified in Round 1; Round 2 followed `docs/ROUND2_BRIEF.md` and is tracked in `docs/STATUS.md`. No CI workflow, deployment or frontend was added. The last column (human explanation) is intentionally left unchecked.
  
-## 4. GitHub
- 
-- **Repo name:** `backend-assessment` (or similar). Use `main`, small commits, one commit (or PR) per task.
-- **Public or private?** The spec is the company's test material. **Default to private** and add the reviewers as collaborators, or ask the company whether a public repo is okay. If it must be public, keep `TEST_SPEC.md` out of it and keep only your own work.
-- **CI (free):** GitHub Actions with a Postgres and Redis service container, one job per task. A green badge in the root README is real proof that the concurrency (T5) and outbox (T8) tests pass on real PostgreSQL, which no serverless host can demonstrate.
-- **Commands we'll use** (you run these once the repo is created on github.com):
-```bash
-git init && git add . && git commit -m "chore: skeleton"
-git branch -M main
-git remote add origin git@github.com:<you>/backend-assessment.git
-git push -u origin main
-```
-- `.gitignore` for Python/Django, `.env.example` committed, real `.env` never committed.
-## 5. Deployment (free, and must not conflict with the spec)
- 
-**Hard rule from the spec:** setup must not depend on an external account. So the **graded deliverable is local**: `docker compose up` gives Postgres and Redis, and each README has a run and test command. Deployment is an **optional bonus demo kept in `deploy/`**, outside the task folders.
- 
-| Concern | Free option | Notes |
-|---|---|---|
-| Database | **Neon** (serverless Postgres) | Real Postgres, so `select_for_update`, `SKIP LOCKED` and exclusion constraints work. Use the direct connection string for migrations/seeding and the pooled one for the app. Scales to zero, so the first request is slow. Free storage is small but enough for a demo seed (use a reduced seed on Neon; the 100k seed stays local). |
-| API hosting | **Vercel** (Python/WSGI function) | Fine for request/response tasks: **T3, T4, T6, T7** (and T2/T9 if exposed). Serve static with WhiteNoise. Check bundle-size and timeout limits when we get there. |
-| Rate limit store (T6) | Postgres DB cache (no extra account) | Locally and in CI use Redis. Settings switch via env var. |
-| Not deployable on Vercel | **T5 and T8** | They need long-lived workers, real concurrency and Celery, which a serverless function can't provide. They are demonstrated by **CI on GitHub Actions** and their READMEs. This is a limitation, not a failure. |
-| If a long-running host is wanted | Render/Koyeb-style free web service | Sleeps when idle. Only if we really want T8's worker live. Free tiers change, so I'll re-verify current limits before we deploy. |
- 
-**Plan:** finish and verify everything locally and in CI first. Deploy last, only for the tasks that suit it, and only if time allows.
- 
-## 6. Frontend
- 
-**Not required by the spec**, so we **don't build one**. Time is better spent on the 41 hours of backend depth. What we do instead (cheap, useful for reviewers):
- 
-1. **API docs UI**: `drf-spectacular` Swagger page for T3, T4, T6 and T7.
-2. **DRF browsable API / admin**: T3 uses the Django admin as the "admin page" the spec mentions.
-3. **Root `README.md`** as the landing page: a task index with run commands and CI badge.
-4. **Diagrams as Mermaid** inside Markdown (T2 class diagram, T10 ERD and sequence): GitHub renders them natively.
-5. Optionally, one static `index.html` on Vercel linking to the live Swagger pages. Only if the demo deploy happens.
+## 4. Repository history
+
+The repository already exists. The orchestrator commits one task at a time and pushes to `dev`. No CI workflow was added because `AGENTS.md` forbids it. `.gitignore` ignores `.env`, `.venv`, `*.sqlite3` and `__pycache__`; `.env.example` is committed.
+
+## 5. Deployment (not built)
+
+Not built. `AGENTS.md` forbids deployment work and the spec requires local setup with no external account.
+
+## 6. Frontend (not built)
+
+Not built. No UI, static host or demo page. Swagger/OpenAPI is available only in tasks 4 and 6 as
+required by Round 3; all other deliverables are local backend code, tests and documentation.
+
 ## 7. Open items to confirm
  
 - Is AI assistance allowed for this test? (Ask the company; either way, we build so you can explain everything.)

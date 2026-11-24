@@ -1,0 +1,4 @@
+extend = "../pyproject.toml"
+
+[lint.isort]
+known-first-party = ["receipts", "celery_app", "task08_settings", "db_utils"]
